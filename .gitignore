@@ -1,0 +1,7 @@
+node_modules
+build
+.env
+.agents
+__backup__
+scratch_make_history.js
+.DS_Store
