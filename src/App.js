@@ -4,8 +4,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 const ADMIN_PASS = "wtfnikhil";
 const STORAGE_KEY = "wtf_insights_v1";
 const SUGGESTIONS_KEY = "wtf_suggestions_v1";
-const SAMPLE_INSIGHTS = [];
-
+const SAMPLE_INSIGHTS = [
+  { id: "1", ep: "WTF is Investing?", quote: "Investing is not about finding the best company, it is about avoiding the worst ones.", takeaway: "Focus on risk mitigation and capital preservation rather than chasing speculative high returns.", topic: "Investing", ts: "0:15:30", date: "2026-05-01" },
+  { id: "2", ep: "WTF is Startups?", quote: "Startups fail because they run out of money, not because they run out of ideas.", takeaway: "Cash flow management is the absolute single point of failure for early-stage companies.", topic: "Startups", ts: "0:42:15", date: "2026-05-02" }
+];
 const TOPICS = ["Investing", "Startups", "Technology", "Health", "Life"];
 
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Grotesk:wght@400;500;700&family=Syne:wght@700;800&display=swap');`;
@@ -828,6 +830,7 @@ const css = `
 `;
 
 export default function App() {
+  const [insights, setInsights] = useState(SAMPLE_INSIGHTS);
   useEffect(() => {
     const s = document.createElement("style");
     s.textContent = FONTS + css;
@@ -850,6 +853,19 @@ export default function App() {
             <h1 className="hero-title">What Nikhil Kamath<br />actually <em>said.</em></h1>
           </div>
         </section>
+        <div style={{ padding: 40 }}>
+          <div className="ep-grid">
+            {insights.map((ins) => (
+              <div className="ins-card" key={ins.id}>
+                <div className="card-quote">{ins.quote}</div>
+                <div className="card-takeaway">{ins.takeaway}</div>
+                <div className="card-footer">
+                  <span className="card-tag">{ins.topic}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </>
   );
