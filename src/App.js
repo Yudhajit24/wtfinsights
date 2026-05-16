@@ -831,12 +831,26 @@ const css = `
 
 export default function App() {
   const [insights, setInsights] = useState(SAMPLE_INSIGHTS);
+  const [view, setView] = useState("episodes");
+  const [openEp, setOpenEp] = useState("WTF is Investing?");
+  
   useEffect(() => {
     const s = document.createElement("style");
     s.textContent = FONTS + css;
     document.head.appendChild(s);
     return () => document.head.removeChild(s);
   }, []);
+  
+  const episodeGroups = [];
+  const epMap = {};
+  insights.forEach((ins) => {
+    if (!epMap[ins.ep]) {
+      epMap[ins.ep] = [];
+      episodeGroups.push({ ep: ins.ep, items: epMap[ins.ep] });
+    }
+    epMap[ins.ep].push(ins);
+  });
+  
   return (
     <>
       <div className="ballpit-wrap" />
@@ -853,19 +867,41 @@ export default function App() {
             <h1 className="hero-title">What Nikhil Kamath<br />actually <em>said.</em></h1>
           </div>
         </section>
-        <div style={{ padding: 40 }}>
-          <div className="ep-grid">
-            {insights.map((ins) => (
-              <div className="ins-card" key={ins.id}>
-                <div className="card-quote">{ins.quote}</div>
-                <div className="card-takeaway">{ins.takeaway}</div>
-                <div className="card-footer">
-                  <span className="card-tag">{ins.topic}</span>
-                </div>
-              </div>
-            ))}
+        
+        <div className="filter-bar">
+          <div className="view-toggle">
+            <button className={`vt-btn${view === "episodes" ? " active" : ""}`} onClick={() => setView("episodes")}>Episodes</button>
+            <button className={`vt-btn${view === "topics" ? " active" : ""}`} onClick={() => setView("topics")}>By Topic</button>
           </div>
         </div>
+        
+        {view === "episodes" && (
+          <div>
+            {episodeGroups.map((group) => {
+              const isOpen = openEp === group.ep;
+              return (
+                <div className="topic-section" key={group.ep}>
+                  <div className="topic-header accordion-header" onClick={() => setOpenEp(isOpen ? null : group.ep)}>
+                    <span className="topic-name">{group.ep}</span>
+                    <span className="topic-count">{group.items.length} insight</span>
+                    <div className="topic-rule" />
+                    <span className={`accordion-chevron${isOpen ? " open" : ""}`}>▼</span>
+                  </div>
+                  {isOpen && (
+                    <div className="ep-grid">
+                      {group.items.map((ins) => (
+                        <div className="ins-card" key={ins.id}>
+                          <div className="card-quote">{ins.quote}</div>
+                          <div className="card-takeaway">{ins.takeaway}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </>
   );
