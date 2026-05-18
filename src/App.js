@@ -4,10 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 const ADMIN_PASS = "wtfnikhil";
 const STORAGE_KEY = "wtf_insights_v1";
 const SUGGESTIONS_KEY = "wtf_suggestions_v1";
-const SAMPLE_INSIGHTS = [
-  { id: "1", ep: "WTF is Investing?", quote: "Investing is not about finding the best company, it is about avoiding the worst ones.", takeaway: "Focus on risk mitigation and capital preservation rather than chasing speculative high returns.", topic: "Investing", ts: "0:15:30", date: "2026-05-01" },
-  { id: "2", ep: "WTF is Startups?", quote: "Startups fail because they run out of money, not because they run out of ideas.", takeaway: "Cash flow management is the absolute single point of failure for early-stage companies.", topic: "Startups", ts: "0:42:15", date: "2026-05-02" }
-];
+const SAMPLE_INSIGHTS = [];
+
 const TOPICS = ["Investing", "Startups", "Technology", "Health", "Life"];
 
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Grotesk:wght@400;500;700&family=Syne:wght@700;800&display=swap');`;
@@ -830,27 +828,45 @@ const css = `
 `;
 
 export default function App() {
-  const [insights, setInsights] = useState(SAMPLE_INSIGHTS);
+  const [insights, setInsights] = useState([
+    { id: "1", ep: "WTF is Investing?", quote: "Investing is not about finding the best company, it is about avoiding the worst ones.", takeaway: "Focus on risk mitigation and capital preservation rather than chasing speculative high returns.", topic: "Investing", ts: "0:15:30", date: "2026-05-01" },
+    { id: "2", ep: "WTF is Startups?", quote: "Startups fail because they run out of money, not because they run out of ideas.", takeaway: "Cash flow management is the absolute single point of failure for early-stage companies.", topic: "Startups", ts: "0:42:15", date: "2026-05-02" }
+  ]);
+  const [topic, setTopic] = useState("all");
+  const [epFilter, setEpFilter] = useState("all");
   const [view, setView] = useState("episodes");
-  const [openEp, setOpenEp] = useState("WTF is Investing?");
-  
+  const [search, setSearch] = useState("");
+  const [openEp, setOpenEp] = useState(null);
+
   useEffect(() => {
     const s = document.createElement("style");
     s.textContent = FONTS + css;
     document.head.appendChild(s);
     return () => document.head.removeChild(s);
   }, []);
-  
+
+  const uniqueEps = [...new Set(insights.map((i) => i.ep))];
+
+  const filtered = insights.filter((i) => {
+    const matchTopic = topic === "all" || i.topic === topic;
+    const matchEp = epFilter === "all" || i.ep === epFilter;
+    const matchSearch = !search ||
+      i.quote.toLowerCase().includes(search.toLowerCase()) ||
+      i.ep.toLowerCase().includes(search.toLowerCase()) ||
+      i.takeaway.toLowerCase().includes(search.toLowerCase());
+    return matchTopic && matchEp && matchSearch;
+  });
+
   const episodeGroups = [];
   const epMap = {};
-  insights.forEach((ins) => {
+  filtered.forEach((ins) => {
     if (!epMap[ins.ep]) {
       epMap[ins.ep] = [];
       episodeGroups.push({ ep: ins.ep, items: epMap[ins.ep] });
     }
     epMap[ins.ep].push(ins);
   });
-  
+
   return (
     <>
       <div className="ballpit-wrap" />
@@ -860,21 +876,34 @@ export default function App() {
             <div className="logo">WTF<span>Insights</span></div>
             <div className="logo-sub">Curated from the WTF is Podcast</div>
           </div>
+          <div className="masthead-right">
+            <div className="search-wrap">
+              <span className="search-icon">&#x2315;</span>
+              <input className="search-input" placeholder="Search insights..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+          </div>
         </header>
+
         <section className="hero">
           <div>
             <div className="hero-label">Every episode. Every insight. No fluff.</div>
             <h1 className="hero-title">What Nikhil Kamath<br />actually <em>said.</em></h1>
           </div>
         </section>
-        
+
         <div className="filter-bar">
+          <span className="filter-label">Topic</span>
+          {["all", ...TOPICS].map((t) => (
+            <button key={t} className={`tag${topic === t ? " active" : ""}`} onClick={() => setTopic(t)}>
+              {t === "all" ? "All" : t}
+            </button>
+          ))}
           <div className="view-toggle">
             <button className={`vt-btn${view === "episodes" ? " active" : ""}`} onClick={() => setView("episodes")}>Episodes</button>
             <button className={`vt-btn${view === "topics" ? " active" : ""}`} onClick={() => setView("topics")}>By Topic</button>
           </div>
         </div>
-        
+
         {view === "episodes" && (
           <div>
             {episodeGroups.map((group) => {
@@ -883,7 +912,7 @@ export default function App() {
                 <div className="topic-section" key={group.ep}>
                   <div className="topic-header accordion-header" onClick={() => setOpenEp(isOpen ? null : group.ep)}>
                     <span className="topic-name">{group.ep}</span>
-                    <span className="topic-count">{group.items.length} insight</span>
+                    <span className="topic-count">{group.items.length} insight{group.items.length > 1 ? "s" : ""}</span>
                     <div className="topic-rule" />
                     <span className={`accordion-chevron${isOpen ? " open" : ""}`}>▼</span>
                   </div>
