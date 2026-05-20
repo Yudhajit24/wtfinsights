@@ -828,15 +828,24 @@ const css = `
 `;
 
 export default function App() {
-  const [insights, setInsights] = useState([
-    { id: "1", ep: "WTF is Investing?", quote: "Investing is not about finding the best company, it is about avoiding the worst ones.", takeaway: "Focus on risk mitigation and capital preservation rather than chasing speculative high returns.", topic: "Investing", ts: "0:15:30", date: "2026-05-01" },
-    { id: "2", ep: "WTF is Startups?", quote: "Startups fail because they run out of money, not because they run out of ideas.", takeaway: "Cash flow management is the absolute single point of failure for early-stage companies.", topic: "Startups", ts: "0:42:15", date: "2026-05-02" }
-  ]);
+  const [insights, setInsights] = useState(() => {
+    try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  const [suggestions, setSuggestions] = useState(() => {
+    try { const s = localStorage.getItem(SUGGESTIONS_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
   const [topic, setTopic] = useState("all");
   const [epFilter, setEpFilter] = useState("all");
   const [view, setView] = useState("episodes");
   const [search, setSearch] = useState("");
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [sugForm, setSugForm] = useState({ ep: "", quote: "", context: "", name: "" });
+  const [sugErr, setSugErr] = useState({});
+  const [sugSent, setSugSent] = useState(false);
   const [openEp, setOpenEp] = useState(null);
+
+  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(insights)); }, [insights]);
+  useEffect(() => { localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(suggestions)); }, [suggestions]);
 
   useEffect(() => {
     const s = document.createElement("style");
@@ -867,6 +876,16 @@ export default function App() {
     epMap[ins.ep].push(ins);
   });
 
+  const submitSuggestion = () => {
+    const errs = {};
+    if (!sugForm.ep.trim()) errs.ep = "Required";
+    if (!sugForm.quote.trim()) errs.quote = "Required";
+    setSugErr(errs);
+    if (Object.keys(errs).length) return;
+    setSuggestions((prev) => [{ ...sugForm, id: Date.now().toString(), date: new Date().toISOString().split("T")[0], status: "pending" }, ...prev]);
+    setSugSent(true);
+  };
+
   return (
     <>
       <div className="ballpit-wrap" />
@@ -881,6 +900,9 @@ export default function App() {
               <span className="search-icon">&#x2315;</span>
               <input className="search-input" placeholder="Search insights..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
+            <button className="btn" onClick={() => { setSugSent(false); setSugForm({ ep: "", quote: "", context: "", name: "" }); setShowSuggest(true); }}>
+              Suggest
+            </button>
           </div>
         </header>
 
@@ -932,6 +954,41 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {showSuggest && (
+        <div className="overlay" onClick={(e) => e.target === e.currentTarget && setShowSuggest(false)}>
+          <div className="modal" style={{ maxWidth: 460 }}>
+            <div className="modal-head">
+              <div className="modal-title">Suggest an insight</div>
+              <button className="modal-close" onClick={() => setShowSuggest(false)}>&#215;</button>
+            </div>
+            {sugSent ? (
+              <div className="modal-body" style={{ textAlign: "center", padding: "40px 24px" }}>
+                <div style={{ fontSize: 32, marginBottom: 12, fontWeight: 800 }}>✓</div>
+                <div style={{ fontFamily: "var(--font-heading)", fontSize: 20, fontWeight: 800, marginBottom: 8, textTransform: "uppercase" }}>Thanks!</div>
+                <div>Your suggestion has been submitted.</div>
+              </div>
+            ) : (
+              <>
+                <div className="modal-body">
+                  <div className="field">
+                    <label>Episode name</label>
+                    <input value={sugForm.ep} onChange={(e) => setSugForm({ ...sugForm, ep: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label>The quote</label>
+                    <textarea value={sugForm.quote} onChange={(e) => setSugForm({ ...sugForm, quote: e.target.value })} />
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button className="btn" onClick={() => setShowSuggest(false)}>Cancel</button>
+                  <button className="btn btn-solid" onClick={submitSuggestion}>Submit</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }
