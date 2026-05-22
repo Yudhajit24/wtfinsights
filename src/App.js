@@ -838,11 +838,19 @@ export default function App() {
   const [epFilter, setEpFilter] = useState("all");
   const [view, setView] = useState("episodes");
   const [search, setSearch] = useState("");
+  const [showAuth, setShowAuth] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
   const [showSuggest, setShowSuggest] = useState(false);
+  const [authErr, setAuthErr] = useState(false);
+  const [formErr, setFormErr] = useState({});
+  const [form, setForm] = useState({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
   const [sugForm, setSugForm] = useState({ ep: "", quote: "", context: "", name: "" });
   const [sugErr, setSugErr] = useState({});
   const [sugSent, setSugSent] = useState(false);
+  const [adminSubTab, setAdminSubTab] = useState("add");
   const [openEp, setOpenEp] = useState(null);
+
+  const passRef = useRef();
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(insights)); }, [insights]);
   useEffect(() => { localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(suggestions)); }, [suggestions]);
@@ -866,15 +874,24 @@ export default function App() {
     return matchTopic && matchEp && matchSearch;
   });
 
-  const episodeGroups = [];
-  const epMap = {};
-  filtered.forEach((ins) => {
-    if (!epMap[ins.ep]) {
-      epMap[ins.ep] = [];
-      episodeGroups.push({ ep: ins.ep, items: epMap[ins.ep] });
-    }
-    epMap[ins.ep].push(ins);
-  });
+  const checkAuth = () => {
+    if (passRef.current?.value === ADMIN_PASS) {
+      setShowAuth(false); setAuthErr(false);
+      passRef.current.value = "";
+      setShowAdmin(true);
+    } else { setAuthErr(true); }
+  };
+
+  const addInsight = () => {
+    const errs = {};
+    if (!form.ep.trim()) errs.ep = "Required";
+    if (!form.quote.trim()) errs.quote = "Required";
+    if (!form.takeaway.trim()) errs.takeaway = "Required";
+    setFormErr(errs);
+    if (Object.keys(errs).length) return;
+    setInsights((prev) => [{ ...form, id: Date.now().toString(), date: new Date().toISOString().split("T")[0] }, ...prev]);
+    setForm({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
+  };
 
   const submitSuggestion = () => {
     const errs = {};
@@ -885,6 +902,30 @@ export default function App() {
     setSuggestions((prev) => [{ ...sugForm, id: Date.now().toString(), date: new Date().toISOString().split("T")[0], status: "pending" }, ...prev]);
     setSugSent(true);
   };
+
+  const approveSuggestion = (sug) => {
+    setInsights((prev) => [{
+      id: Date.now().toString(), ep: sug.ep, quote: sug.quote,
+      takeaway: sug.context || "Community suggested insight.", topic: "Life", ts: "", date: sug.date
+    }, ...prev]);
+    setSuggestions((prev) => prev.filter((s) => s.id !== sug.id));
+  };
+
+  const rejectSuggestion = (id) => {
+    setSuggestions((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const pendingSuggestions = suggestions.filter((s) => s.status === "pending");
+
+  const episodeGroups = [];
+  const epMap = {};
+  filtered.forEach((ins) => {
+    if (!epMap[ins.ep]) {
+      epMap[ins.ep] = [];
+      episodeGroups.push({ ep: ins.ep, items: epMap[ins.ep] });
+    }
+    epMap[ins.ep].push(ins);
+  });
 
   return (
     <>
@@ -902,6 +943,9 @@ export default function App() {
             </div>
             <button className="btn" onClick={() => { setSugSent(false); setSugForm({ ep: "", quote: "", context: "", name: "" }); setShowSuggest(true); }}>
               Suggest
+            </button>
+            <button className="btn btn-solid" onClick={() => setShowAuth(true)}>
+              + Add {pendingSuggestions.length > 0 && <span className="pending-count-badge">{pendingSuggestions.length}</span>}
             </button>
           </div>
         </header>
@@ -986,6 +1030,82 @@ export default function App() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {showAuth && (
+        <div className="overlay" onClick={(e) => e.target === e.currentTarget && setShowAuth(false)}>
+          <div className="modal" style={{ maxWidth: 360 }}>
+            <div className="modal-head">
+              <div className="modal-title">Admin access</div>
+              <button className="modal-close" onClick={() => { setShowAuth(false); setAuthErr(false); }}>&#215;</button>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label>Password</label>
+                <input type="password" ref={passRef} placeholder="Enter password" className={authErr ? "field-error" : ""} onKeyDown={(e) => e.key === "Enter" && checkAuth()} autoFocus />
+                {authErr && <div className="error-msg">Incorrect password.</div>}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn" onClick={() => { setShowAuth(false); setAuthErr(false); }}>Cancel</button>
+              <button className="btn btn-solid" onClick={checkAuth}>Unlock</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAdmin && (
+        <div className="overlay" onClick={(e) => e.target === e.currentTarget && setShowAdmin(false)}>
+          <div className="modal">
+            <div className="modal-head">
+              <div className="modal-title">Admin Panel</div>
+              <button className="modal-close" onClick={() => setShowAdmin(false)}>&#215;</button>
+            </div>
+            <div className="modal-body">
+              <div className="tabs">
+                <button className={`tab-btn${adminSubTab === "add" ? " active" : ""}`} onClick={() => setAdminSubTab("add")}>Add Manual</button>
+                <button className={`tab-btn${adminSubTab === "suggestions" ? " active" : ""}`} onClick={() => setAdminSubTab("suggestions")}>Suggestions</button>
+              </div>
+
+              {adminSubTab === "add" && (
+                <div>
+                  <div className="field">
+                    <label>Episode title</label>
+                    <input placeholder="e.g. WTF is Investing?" value={form.ep} onChange={(e) => setForm({ ...form, ep: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label>Quote</label>
+                    <textarea placeholder="Nikhil's exact words..." value={form.quote} onChange={(e) => setForm({ ...form, quote: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label>Key takeaway</label>
+                    <textarea placeholder="What's the core insight?" value={form.takeaway} onChange={(e) => setForm({ ...form, takeaway: e.target.value })} />
+                  </div>
+                </div>
+              )}
+
+              {adminSubTab === "suggestions" && (
+                <div>
+                  {pendingSuggestions.length === 0 ? (
+                    <div className="empty-suggestions">No pending suggestions</div>
+                  ) : (
+                    pendingSuggestions.map((sug) => (
+                      <div className="suggestion-item" key={sug.id}>
+                        <div>{sug.quote}</div>
+                        <button className="btn btn-solid" onClick={() => approveSuggestion(sug)}>Push</button>
+                        <button className="btn" onClick={() => rejectSuggestion(sug.id)}>Dismiss</button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn" onClick={() => setShowAdmin(false)}>Close</button>
+              {adminSubTab === "add" && <button className="btn btn-solid" onClick={addInsight}>Publish</button>}
+            </div>
           </div>
         </div>
       )}
