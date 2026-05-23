@@ -827,6 +827,43 @@ const css = `
 
 `;
 
+async function extractInsightsWithAI(transcript, episodeName) {
+  const prompt = `You are extracting insights from a podcast transcript of the WTF is podcast by Nikhil Kamath.
+
+Episode: "${episodeName}"
+
+Transcript:
+${transcript.slice(0, 12000)}
+
+Extract the 5-8 most insightful, quotable moments. For each one:
+- Find Nikhil's exact words (or close paraphrase if transcript is rough)
+- Write a plain-language takeaway (1-2 sentences)
+- Classify into one of: Investing, Startups, Technology, Health, Life
+- Estimate a rough timestamp if inferable (otherwise leave empty string)
+
+Respond ONLY with a JSON array, no preamble, no markdown backticks:
+[{"quote":"...","takeaway":"...","topic":"Investing","ts":"0:12:34"}]`;
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.REACT_APP_GROQ_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+    }),
+  });
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || "";
+  const clean = text.replace(/```json|```/g, "").trim();
+  return JSON.parse(clean);
+}
+
+
 export default function App() {
   const [insights, setInsights] = useState(() => {
     try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
@@ -847,8 +884,16 @@ export default function App() {
   const [sugForm, setSugForm] = useState({ ep: "", quote: "", context: "", name: "" });
   const [sugErr, setSugErr] = useState({});
   const [sugSent, setSugSent] = useState(false);
+  const [adminTab, setAdminTab] = useState("ai");
   const [adminSubTab, setAdminSubTab] = useState("add");
   const [openEp, setOpenEp] = useState(null);
+
+  const [epName, setEpName] = useState("");
+  const [transcript, setTranscript] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [extracted, setExtracted] = useState([]);
+  const [selected, setSelected] = useState([]);
+  const [extractErr, setExtractErr] = useState("");
 
   const passRef = useRef();
 
@@ -891,6 +936,27 @@ export default function App() {
     if (Object.keys(errs).length) return;
     setInsights((prev) => [{ ...form, id: Date.now().toString(), date: new Date().toISOString().split("T")[0] }, ...prev]);
     setForm({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
+  };
+
+  const handleExtract = async () => {
+    if (!transcript.trim()) { setExtractErr("Paste the transcript first."); return; }
+    if (!epName.trim()) { setExtractErr("Enter the episode name first."); return; }
+    setExtractErr(""); setExtracting(true); setExtracted([]); setSelected([]);
+    try {
+      const results = await extractInsightsWithAI(transcript, epName);
+      setExtracted(results);
+      setSelected(results.map((_, i) => i));
+    } catch (e) { setExtractErr("Something went wrong. Check your API key or try again."); }
+    setExtracting(false);
+  };
+
+  const publishSelected = () => {
+    const toAdd = selected.map((i) => ({
+      ...extracted[i], id: Date.now().toString() + i, ep: epName,
+      date: new Date().toISOString().split("T")[0],
+    }));
+    setInsights((prev) => [...toAdd, ...prev]);
+    setExtracted([]); setSelected([]); setTranscript(""); setEpName("");
   };
 
   const submitSuggestion = () => {
@@ -1065,46 +1131,29 @@ export default function App() {
             </div>
             <div className="modal-body">
               <div className="tabs">
-                <button className={`tab-btn${adminSubTab === "add" ? " active" : ""}`} onClick={() => setAdminSubTab("add")}>Add Manual</button>
+                <button className={`tab-btn${adminSubTab === "add" ? " active" : ""}`} onClick={() => setAdminSubTab("add")}>Add Insights</button>
                 <button className={`tab-btn${adminSubTab === "suggestions" ? " active" : ""}`} onClick={() => setAdminSubTab("suggestions")}>Suggestions</button>
               </div>
 
               {adminSubTab === "add" && (
                 <div>
-                  <div className="field">
-                    <label>Episode title</label>
-                    <input placeholder="e.g. WTF is Investing?" value={form.ep} onChange={(e) => setForm({ ...form, ep: e.target.value })} />
+                  <div className="tabs" style={{ marginTop: -10 }}>
+                    <button className={`tab-btn${adminTab === "ai" ? " active" : ""}`} onClick={() => setAdminTab("ai")}>AI Extract</button>
+                    <button className={`tab-btn${adminTab === "manual" ? " active" : ""}`} onClick={() => setAdminTab("manual")}>Manual</button>
                   </div>
-                  <div className="field">
-                    <label>Quote</label>
-                    <textarea placeholder="Nikhil's exact words..." value={form.quote} onChange={(e) => setForm({ ...form, quote: e.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label>Key takeaway</label>
-                    <textarea placeholder="What's the core insight?" value={form.takeaway} onChange={(e) => setForm({ ...form, takeaway: e.target.value })} />
-                  </div>
-                </div>
-              )}
-
-              {adminSubTab === "suggestions" && (
-                <div>
-                  {pendingSuggestions.length === 0 ? (
-                    <div className="empty-suggestions">No pending suggestions</div>
-                  ) : (
-                    pendingSuggestions.map((sug) => (
-                      <div className="suggestion-item" key={sug.id}>
-                        <div>{sug.quote}</div>
-                        <button className="btn btn-solid" onClick={() => approveSuggestion(sug)}>Push</button>
-                        <button className="btn" onClick={() => rejectSuggestion(sug.id)}>Dismiss</button>
-                      </div>
-                    ))
+                  
+                  {adminTab === "ai" && (
+                    <div>
+                      <input placeholder="Episode name" value={epName} onChange={(e) => setEpName(e.target.value)} />
+                      <textarea placeholder="Paste transcript here..." value={transcript} onChange={(e) => setTranscript(e.target.value)} />
+                      <button className="btn btn-accent" onClick={handleExtract}>Extract with AI</button>
+                    </div>
                   )}
                 </div>
               )}
             </div>
             <div className="modal-footer">
               <button className="btn" onClick={() => setShowAdmin(false)}>Close</button>
-              {adminSubTab === "add" && <button className="btn btn-solid" onClick={addInsight}>Publish</button>}
             </div>
           </div>
         </div>
