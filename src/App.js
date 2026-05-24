@@ -3,7 +3,7 @@ import { db, isFirebaseConfigured } from "./firebase";
 import { collection, getDocs, addDoc, deleteDoc, doc } from "firebase/firestore";
 
 
-const ADMIN_PASS = "wtfnikhil";
+const ADMIN_PASS = process.env.REACT_APP_ADMIN_PASSCODE || "wtfnikhil";
 const STORAGE_KEY = "wtf_insights_v1";
 const SUGGESTIONS_KEY = "wtf_suggestions_v1";
 const SAMPLE_INSIGHTS = [];
@@ -1516,8 +1516,9 @@ export default function App() {
 
       <footer className="footer">
         <div className="footer-text">
-          Not affiliated with Nikhil Kamath or WTF is Podcast. Built by{" "}
-          <a href="https://linkedin.com/in/yudhajitmondal" target="_blank" rel="noreferrer">@yudhajit</a>
+          Not affiliated with Nikhil Kamath or WTF is Podcast. Built by Yudhajit Mondal (
+          <a href="https://www.linkedin.com/in/yudhajit-mondal-28a67725b/" target="_blank" rel="noreferrer">LinkedIn</a> ·{" "}
+          <a href="https://x.com/MondalYudhajit" target="_blank" rel="noreferrer">X</a>)
         </div>
         <div className="footer-logo">WTF<span>Insights</span></div>
       </footer>
@@ -1586,7 +1587,6 @@ export default function App() {
                 <label>Password</label>
                 <input type="password" ref={passRef} placeholder="Enter password" className={authErr ? "field-error" : ""} onKeyDown={(e) => e.key === "Enter" && checkAuth()} autoFocus />
                 {authErr && <div className="error-msg">Incorrect password.</div>}
-                <div className="auth-hint">Default: wtfnikhil</div>
               </div>
             </div>
             <div className="modal-footer">
