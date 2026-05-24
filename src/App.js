@@ -863,14 +863,14 @@ Respond ONLY with a JSON array, no preamble, no markdown backticks:
   return JSON.parse(clean);
 }
 
-
 export default function App() {
   const [insights, setInsights] = useState(() => {
-    try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+    try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : SAMPLE_INSIGHTS; } catch { return SAMPLE_INSIGHTS; }
   });
   const [suggestions, setSuggestions] = useState(() => {
     try { const s = localStorage.getItem(SUGGESTIONS_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
   });
+
   const [topic, setTopic] = useState("all");
   const [epFilter, setEpFilter] = useState("all");
   const [view, setView] = useState("episodes");
@@ -879,6 +879,7 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [showSuggest, setShowSuggest] = useState(false);
   const [authErr, setAuthErr] = useState(false);
+  const [toast, setToast] = useState({ show: false, msg: "" });
   const [formErr, setFormErr] = useState({});
   const [form, setForm] = useState({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
   const [sugForm, setSugForm] = useState({ ep: "", quote: "", context: "", name: "" });
@@ -886,7 +887,10 @@ export default function App() {
   const [sugSent, setSugSent] = useState(false);
   const [adminTab, setAdminTab] = useState("ai");
   const [adminSubTab, setAdminSubTab] = useState("add");
+  const [copiedId, setCopiedId] = useState(null);
   const [openEp, setOpenEp] = useState(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [highlightedInsight, setHighlightedInsight] = useState(null);
 
   const [epName, setEpName] = useState("");
   const [transcript, setTranscript] = useState("");
@@ -907,6 +911,39 @@ export default function App() {
     return () => document.head.removeChild(s);
   }, []);
 
+  useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY > 400);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  const randomInsight = useCallback(() => {
+    if (insights.length === 0) return;
+    const ins = insights[Math.floor(Math.random() * insights.length)];
+    setHighlightedInsight(ins.id);
+    // Open that episode's accordion
+    setOpenEp(ins.ep);
+    // Clear any filters so we can see it
+    setTopic('all');
+    setEpFilter('all');
+    setView('episodes');
+    setSearch('');
+    // Scroll to the card after a brief delay for accordion to open
+    setTimeout(() => {
+      const el = document.getElementById(`card-${ins.id}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 350);
+    // Clear highlight after 3s
+    setTimeout(() => setHighlightedInsight(null), 3500);
+  }, [insights]);
+
+  const showToast = (msg) => {
+    setToast({ show: true, msg });
+    setTimeout(() => setToast({ show: false, msg: "" }), 2800);
+  };
+
   const uniqueEps = [...new Set(insights.map((i) => i.ep))];
 
   const filtered = insights.filter((i) => {
@@ -918,6 +955,8 @@ export default function App() {
       i.takeaway.toLowerCase().includes(search.toLowerCase());
     return matchTopic && matchEp && matchSearch;
   });
+
+  const uniqueTopics = [...new Set(insights.map((i) => i.topic))].length;
 
   const checkAuth = () => {
     if (passRef.current?.value === ADMIN_PASS) {
@@ -936,6 +975,18 @@ export default function App() {
     if (Object.keys(errs).length) return;
     setInsights((prev) => [{ ...form, id: Date.now().toString(), date: new Date().toISOString().split("T")[0] }, ...prev]);
     setForm({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
+    showToast("Insight published");
+  };
+
+  // eslint-disable-next-line no-unused-vars
+  const deleteInsight = (id) => { setInsights((prev) => prev.filter((i) => i.id !== id)); showToast("Removed"); };
+
+  const shareInsight = (ins) => {
+    const text = `"${ins.quote}"\n\n— from the WTF is Podcast by @nikhilkamathcio\n\nMore insights: wtfinsights.vercel.app`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(ins.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
   };
 
   const handleExtract = async () => {
@@ -957,6 +1008,7 @@ export default function App() {
     }));
     setInsights((prev) => [...toAdd, ...prev]);
     setExtracted([]); setSelected([]); setTranscript(""); setEpName("");
+    showToast(`${toAdd.length} insight${toAdd.length > 1 ? "s" : ""} published`);
   };
 
   const submitSuggestion = () => {
@@ -975,14 +1027,18 @@ export default function App() {
       takeaway: sug.context || "Community suggested insight.", topic: "Life", ts: "", date: sug.date
     }, ...prev]);
     setSuggestions((prev) => prev.filter((s) => s.id !== sug.id));
+    showToast("Suggestion published!");
   };
 
   const rejectSuggestion = (id) => {
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
+    showToast("Suggestion removed");
   };
 
+  const topicGroups = TOPICS.map((t) => ({ name: t, items: filtered.filter((i) => i.topic === t) })).filter((g) => g.items.length > 0);
   const pendingSuggestions = suggestions.filter((s) => s.status === "pending");
 
+  // Group filtered insights by episode name
   const episodeGroups = [];
   const epMap = {};
   filtered.forEach((ins) => {
@@ -997,48 +1053,91 @@ export default function App() {
     <>
       <div className="ballpit-wrap" />
       <div className="site-container">
-        <header className="masthead">
-          <div>
-            <div className="logo">WTF<span>Insights</span></div>
-            <div className="logo-sub">Curated from the WTF is Podcast</div>
+      <header className="masthead">
+        <div>
+          <div className="logo">WTF<span>Insights</span></div>
+          <div className="logo-sub">Curated from the WTF is Podcast</div>
+        </div>
+        <div className="masthead-right">
+          <div className="search-wrap">
+            <span className="search-icon">&#x2315;</span>
+            <input className="search-input" placeholder="Search insights..." value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <div className="masthead-right">
-            <div className="search-wrap">
-              <span className="search-icon">&#x2315;</span>
-              <input className="search-input" placeholder="Search insights..." value={search} onChange={(e) => setSearch(e.target.value)} />
-            </div>
-            <button className="btn" onClick={() => { setSugSent(false); setSugForm({ ep: "", quote: "", context: "", name: "" }); setShowSuggest(true); }}>
-              Suggest
-            </button>
-            <button className="btn btn-solid" onClick={() => setShowAuth(true)}>
-              + Add {pendingSuggestions.length > 0 && <span className="pending-count-badge">{pendingSuggestions.length}</span>}
-            </button>
-          </div>
-        </header>
+          <button className="btn" onClick={() => { setSugSent(false); setSugForm({ ep: "", quote: "", context: "", name: "" }); setShowSuggest(true); }}>
+            Suggest
+          </button>
+          <button className="btn btn-solid" onClick={() => setShowAuth(true)}>
+            + Add {pendingSuggestions.length > 0 && <span className="pending-count-badge">{pendingSuggestions.length}</span>}
+          </button>
+        </div>
+      </header>
 
-        <section className="hero">
-          <div>
-            <div className="hero-label">Every episode. Every insight. No fluff.</div>
-            <h1 className="hero-title">What Nikhil Kamath<br />actually <em>said.</em></h1>
-          </div>
-        </section>
-
-        <div className="filter-bar">
-          <span className="filter-label">Topic</span>
-          {["all", ...TOPICS].map((t) => (
-            <button key={t} className={`tag${topic === t ? " active" : ""}`} onClick={() => setTopic(t)}>
-              {t === "all" ? "All" : t}
-            </button>
-          ))}
-          <div className="view-toggle">
-            <button className={`vt-btn${view === "episodes" ? " active" : ""}`} onClick={() => setView("episodes")}>Episodes</button>
-            <button className={`vt-btn${view === "topics" ? " active" : ""}`} onClick={() => setView("topics")}>By Topic</button>
+      <section className="hero">
+        <div>
+          <div className="hero-label">Every episode. Every insight. No fluff.</div>
+          <h1 className="hero-title">What Nikhil Kamath<br />actually <em>said.</em></h1>
+          <p className="hero-desc">The sharpest quotes, frameworks, and takeaways from the WTF is podcast — distilled for people who'd rather think than scroll.</p>
+          <div className="hero-actions">
+            <button className="btn btn-accent" onClick={randomInsight}>🎲 Random Insight</button>
           </div>
         </div>
+        <div className="hero-stats">
+          <div className="stat-item"><div className="stat-num">{insights.length}</div><div className="stat-lbl">Insights</div></div>
+          <div className="stat-item"><div className="stat-num">{uniqueEps.length}</div><div className="stat-lbl">Episodes</div></div>
+          <div className="stat-item"><div className="stat-num">{uniqueTopics}</div><div className="stat-lbl">Topics</div></div>
+        </div>
+      </section>
 
-        {view === "episodes" && (
-          <div>
-            {episodeGroups.map((group) => {
+      {/* Topic filter */}
+      <div className="filter-bar">
+        <span className="filter-label">Topic</span>
+        {["all", ...TOPICS].map((t) => (
+          <button key={t} className={`tag${topic === t ? " active" : ""}`} onClick={() => setTopic(t)}>
+            {t === "all" ? "All" : t}
+          </button>
+        ))}
+        <div className="view-toggle">
+          <button className={`vt-btn${view === "episodes" ? " active" : ""}`} onClick={() => setView("episodes")}>Episodes</button>
+          <button className={`vt-btn${view === "topics" ? " active" : ""}`} onClick={() => setView("topics")}>By Topic</button>
+        </div>
+      </div>
+
+      {/* Episode filter dropdown */}
+      {uniqueEps.length > 0 && (
+        <div className="filter-bar sub-filter">
+          <span className="filter-label">Episode</span>
+          <select
+            value={epFilter}
+            onChange={(e) => setEpFilter(e.target.value)}
+            className="neo-select"
+          >
+            <option value="all">All episodes</option>
+            {uniqueEps.map((ep) => (
+              <option key={ep} value={ep}>{ep}</option>
+            ))}
+          </select>
+          {epFilter !== "all" && (
+            <button
+              className="btn-clear"
+              onClick={() => setEpFilter("all")}
+            >
+              ✕ Clear
+            </button>
+          )}
+        </div>
+      )}
+
+      {view === "episodes" && (
+        <div>
+          {episodeGroups.length === 0 ? (
+            <div className="ep-grid">
+              <div className="empty-state">
+                <div className="empty-title">No insights found</div>
+                <p>Try a different search or filter.</p>
+              </div>
+            </div>
+          ) : (
+            episodeGroups.map((group) => {
               const isOpen = openEp === group.ep;
               return (
                 <div className="topic-section" key={group.ep}>
@@ -1048,23 +1147,96 @@ export default function App() {
                     <div className="topic-rule" />
                     <span className={`accordion-chevron${isOpen ? " open" : ""}`}>▼</span>
                   </div>
-                  {isOpen && (
-                    <div className="ep-grid">
-                      {group.items.map((ins) => (
-                        <div className="ins-card" key={ins.id}>
-                          <div className="card-quote">{ins.quote}</div>
-                          <div className="card-takeaway">{ins.takeaway}</div>
-                        </div>
-                      ))}
+                  <div className={`accordion-body${isOpen ? " open" : ""}`}>
+                    <div className="accordion-body-inner">
+                      <div className="ep-grid">
+                        {group.items.map((ins, idx) => (
+                          <div className={`ins-card topic-${ins.topic.toLowerCase()}${highlightedInsight === ins.id ? ' highlighted' : ''}`} key={ins.id} id={`card-${ins.id}`}>
+                            <div className="card-number">{String(idx + 1).padStart(2, '0')}</div>
+                            <div className="card-quote">{ins.quote}</div>
+                            <div className="card-takeaway">{ins.takeaway}</div>
+                            <div className="card-footer">
+                              <span className="card-tag">{ins.topic}</span>
+                              <div className="card-meta">
+                                {ins.ts && <span className="card-ts">{ins.ts}</span>}
+                                <button
+                                  className={`share-btn${copiedId === ins.id ? " copied" : ""}`}
+                                  onClick={() => shareInsight(ins)}
+                                  title="Copy to share on X"
+                                >
+                                  {copiedId === ins.id ? "✓ Copied" : "↗ Share"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
+      )}
+
+      {view === "topics" && (
+        <div>
+          {topicGroups.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-title">No insights found</div>
+              <p>Try a different filter.</p>
+            </div>
+          ) : (
+            topicGroups.map((group) => (
+              <div className="topic-section topic-view" key={group.name}>
+                <div className="topic-header">
+                  <span className="topic-name">{group.name}</span>
+                  <span className="topic-count">{group.items.length} insight{group.items.length > 1 ? "s" : ""}</span>
+                  <div className="topic-rule" />
+                </div>
+                <div className="topic-grid">
+                  {group.items.map((ins, i) => (
+                    <div className={`tl-item topic-${ins.topic.toLowerCase()}`} key={ins.id}>
+                      <div className="card-number">{String(i + 1).padStart(2, '0')}</div>
+                      <div className="tl-quote">{ins.quote}</div>
+                      <div className="tl-meta">
+                        <span className="tl-ep">{ins.ep}</span>
+                        {ins.ts && <span className="tl-ts">{ins.ts}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Suggest banner */}
+      <div className="suggest-banner">
+        <div className="suggest-banner-text">
+          <strong>Heard something powerful?</strong> Submit a quote and help build this for the community.
+        </div>
+        <button className="btn" onClick={() => { setSugSent(false); setSugForm({ ep: "", quote: "", context: "", name: "" }); setShowSuggest(true); }}>
+          Suggest an insight
+        </button>
       </div>
 
+      <footer className="footer">
+        <div className="footer-text">
+          Not affiliated with Nikhil Kamath or WTF is Podcast. Built by{" "}
+          <a href="https://linkedin.com/in/yudhajitmondal" target="_blank" rel="noreferrer">@yudhajit</a>
+        </div>
+        <div className="footer-logo">WTF<span>Insights</span></div>
+      </footer>
+
+      </div>{/* end site-container */}
+
+      <button className={`scroll-top${showScrollTop ? ' visible' : ''}`} onClick={scrollToTop} title="Back to top">↑</button>
+      <div className={`toast${toast.show ? " show" : ""}`}>{toast.msg}</div>
+
+      {/* Suggest Modal */}
       {showSuggest && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && setShowSuggest(false)}>
           <div className="modal" style={{ maxWidth: 460 }}>
@@ -1076,18 +1248,28 @@ export default function App() {
               <div className="modal-body" style={{ textAlign: "center", padding: "40px 24px" }}>
                 <div style={{ fontSize: 32, marginBottom: 12, fontWeight: 800 }}>✓</div>
                 <div style={{ fontFamily: "var(--font-heading)", fontSize: 20, fontWeight: 800, marginBottom: 8, textTransform: "uppercase" }}>Thanks!</div>
-                <div>Your suggestion has been submitted.</div>
+                <div style={{ fontSize: 13, color: "var(--ink)", fontWeight: 500 }}>Your suggestion has been submitted for review.</div>
               </div>
             ) : (
               <>
                 <div className="modal-body">
                   <div className="field">
                     <label>Episode name</label>
-                    <input value={sugForm.ep} onChange={(e) => setSugForm({ ...sugForm, ep: e.target.value })} />
+                    <input placeholder="e.g. WTF is Investing?" value={sugForm.ep} className={sugErr.ep ? "field-error" : ""} onChange={(e) => setSugForm({ ...sugForm, ep: e.target.value })} />
+                    {sugErr.ep && <div className="error-msg">Required</div>}
                   </div>
                   <div className="field">
                     <label>The quote</label>
-                    <textarea value={sugForm.quote} onChange={(e) => setSugForm({ ...sugForm, quote: e.target.value })} />
+                    <textarea placeholder="What did Nikhil say?" value={sugForm.quote} className={sugErr.quote ? "field-error" : ""} onChange={(e) => setSugForm({ ...sugForm, quote: e.target.value })} />
+                    {sugErr.quote && <div className="error-msg">Required</div>}
+                  </div>
+                  <div className="field">
+                    <label>Why it matters (optional)</label>
+                    <textarea placeholder="What's the key insight here?" value={sugForm.context} onChange={(e) => setSugForm({ ...sugForm, context: e.target.value })} style={{ minHeight: 60 }} />
+                  </div>
+                  <div className="field">
+                    <label>Your name (optional)</label>
+                    <input placeholder="e.g. Rahul" value={sugForm.name} onChange={(e) => setSugForm({ ...sugForm, name: e.target.value })} />
                   </div>
                 </div>
                 <div className="modal-footer">
@@ -1100,6 +1282,7 @@ export default function App() {
         </div>
       )}
 
+      {/* Auth Modal */}
       {showAuth && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && setShowAuth(false)}>
           <div className="modal" style={{ maxWidth: 360 }}>
@@ -1112,6 +1295,7 @@ export default function App() {
                 <label>Password</label>
                 <input type="password" ref={passRef} placeholder="Enter password" className={authErr ? "field-error" : ""} onKeyDown={(e) => e.key === "Enter" && checkAuth()} autoFocus />
                 {authErr && <div className="error-msg">Incorrect password.</div>}
+                <div className="auth-hint">Default: wtfnikhil</div>
               </div>
             </div>
             <div className="modal-footer">
@@ -1122,38 +1306,154 @@ export default function App() {
         </div>
       )}
 
+      {/* Admin Modal */}
       {showAdmin && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && setShowAdmin(false)}>
           <div className="modal">
             <div className="modal-head">
-              <div className="modal-title">Admin Panel</div>
+              <div className="modal-title">
+                Admin
+                {pendingSuggestions.length > 0 && (
+                  <span className="neo-badge-accent">
+                    {pendingSuggestions.length} suggestion{pendingSuggestions.length > 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
               <button className="modal-close" onClick={() => setShowAdmin(false)}>&#215;</button>
             </div>
             <div className="modal-body">
               <div className="tabs">
                 <button className={`tab-btn${adminSubTab === "add" ? " active" : ""}`} onClick={() => setAdminSubTab("add")}>Add Insights</button>
-                <button className={`tab-btn${adminSubTab === "suggestions" ? " active" : ""}`} onClick={() => setAdminSubTab("suggestions")}>Suggestions</button>
+                <button className={`tab-btn${adminSubTab === "suggestions" ? " active" : ""}`} onClick={() => setAdminSubTab("suggestions")}>
+                  Suggestions {pendingSuggestions.length > 0 && `(${pendingSuggestions.length})`}
+                </button>
               </div>
 
               {adminSubTab === "add" && (
-                <div>
+                <>
                   <div className="tabs" style={{ marginTop: -10 }}>
                     <button className={`tab-btn${adminTab === "ai" ? " active" : ""}`} onClick={() => setAdminTab("ai")}>AI Extract</button>
                     <button className={`tab-btn${adminTab === "manual" ? " active" : ""}`} onClick={() => setAdminTab("manual")}>Manual</button>
                   </div>
-                  
+
                   {adminTab === "ai" && (
                     <div>
-                      <input placeholder="Episode name" value={epName} onChange={(e) => setEpName(e.target.value)} />
-                      <textarea placeholder="Paste transcript here..." value={transcript} onChange={(e) => setTranscript(e.target.value)} />
-                      <button className="btn btn-accent" onClick={handleExtract}>Extract with AI</button>
+                      <div className="ai-panel">
+                        <div className="ai-panel-title">&#9733; How to get the transcript</div>
+                        <div className="ai-steps">
+                          1. Open the episode on <a href="https://www.youtube.com/@nikhilkamathcio" target="_blank" rel="noreferrer">YouTube</a><br />
+                          2. Click <strong>&#8943; More</strong> below the video &#8594; <strong>Show transcript</strong><br />
+                          3. Select all the text, copy, paste below
+                        </div>
+                      </div>
+                      <div className="ep-name-row">
+                        <input placeholder="Episode name — e.g. WTF is Investing?" value={epName} onChange={(e) => setEpName(e.target.value)} />
+                      </div>
+                      <textarea className="transcript-box" placeholder="Paste the YouTube transcript here..." value={transcript} onChange={(e) => setTranscript(e.target.value)} />
+                      {extractErr && <div className="error-msg" style={{ marginBottom: 10 }}>{extractErr}</div>}
+                      <button className="btn btn-accent" style={{ width: "100%" }} onClick={handleExtract} disabled={extracting}>
+                        {extracting ? "Extracting..." : "Extract insights with AI"}
+                      </button>
+                      {extracting && <div className="ai-loading" style={{ marginTop: 14 }}><div className="spinner" />Reading transcript...</div>}
+                      {extracted.length > 0 && (
+                        <div style={{ marginTop: 18 }}>
+                          <div className="divider" />
+                          <div className="select-all-row">
+                            <span className="select-all-label" onClick={() => setSelected(selected.length === extracted.length ? [] : extracted.map((_, i) => i))}>
+                              {selected.length === extracted.length ? "Deselect all" : "Select all"}
+                            </span>
+                            <span className="selected-count">{selected.length} selected</span>
+                          </div>
+                          <div className="extracted-list">
+                            {extracted.map((ins, i) => (
+                              <div className={`extracted-card topic-${ins.topic.toLowerCase()}${selected.includes(i) ? " selected" : ""}`} key={i}>
+                                <div className={`ext-check${selected.includes(i) ? " checked" : ""}`} onClick={() => setSelected((prev) => prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i])}>
+                                  {selected.includes(i) && "✓"}
+                                </div>
+                                <div className="ext-body">
+                                  <div className="ext-quote">{ins.quote}</div>
+                                  <div className="ext-takeaway">{ins.takeaway}</div>
+                                  <div className="ext-meta">
+                                    <select className="ext-topic" value={ins.topic} onChange={(e) => setExtracted((prev) => prev.map((item, idx) => idx === i ? { ...item, topic: e.target.value } : item))}>
+                                      {TOPICS.map((t) => <option key={t}>{t}</option>)}
+                                    </select>
+                                    {ins.ts && <span className="ext-ts">{ins.ts}</span>}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
+                  )}
+
+                  {adminTab === "manual" && (
+                    <div>
+                      <div className="field">
+                        <label>Episode title</label>
+                        <input placeholder="e.g. WTF is Investing?" value={form.ep} className={formErr.ep ? "field-error" : ""} onChange={(e) => setForm({ ...form, ep: e.target.value })} />
+                        {formErr.ep && <div className="error-msg">Required</div>}
+                      </div>
+                      <div className="field">
+                        <label>Quote</label>
+                        <textarea placeholder="Nikhil's exact words..." value={form.quote} className={formErr.quote ? "field-error" : ""} onChange={(e) => setForm({ ...form, quote: e.target.value })} />
+                        {formErr.quote && <div className="error-msg">Required</div>}
+                      </div>
+                      <div className="field">
+                        <label>Key takeaway</label>
+                        <textarea placeholder="What's the core insight?" value={form.takeaway} className={formErr.takeaway ? "field-error" : ""} onChange={(e) => setForm({ ...form, takeaway: e.target.value })} />
+                        {formErr.takeaway && <div className="error-msg">Required</div>}
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                        <div className="field">
+                          <label>Topic</label>
+                          <select value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })}>
+                            {TOPICS.map((t) => <option key={t}>{t}</option>)}
+                          </select>
+                        </div>
+                        <div className="field">
+                          <label>Timestamp</label>
+                          <input placeholder="e.g. 1:12:34" value={form.ts} onChange={(e) => setForm({ ...form, ts: e.target.value })} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {adminSubTab === "suggestions" && (
+                <div>
+                  {pendingSuggestions.length === 0 ? (
+                    <div className="empty-suggestions">No pending suggestions</div>
+                  ) : (
+                    pendingSuggestions.map((sug) => (
+                      <div className="suggestion-item" key={sug.id}>
+                        <div className="sug-quote">{sug.quote}</div>
+                        <div className="sug-meta">
+                          {sug.ep} {sug.name && `· submitted by ${sug.name}`} · {sug.date}
+                        </div>
+                        {sug.context && <div style={{ fontSize: 12, color: "var(--ink)", marginBottom: 8, fontWeight: 500 }}>{sug.context}</div>}
+                        <div className="sug-actions">
+                          <button className="btn btn-solid" style={{ fontSize: 11, padding: "5px 12px" }} onClick={() => approveSuggestion(sug)}>Publish</button>
+                          <button className="btn" style={{ fontSize: 11, padding: "5px 12px" }} onClick={() => rejectSuggestion(sug.id)}>Dismiss</button>
+                        </div>
+                      </div>
+                    ))
                   )}
                 </div>
               )}
             </div>
             <div className="modal-footer">
               <button className="btn" onClick={() => setShowAdmin(false)}>Close</button>
+              {adminSubTab === "add" && adminTab === "ai" && extracted.length > 0 && (
+                <button className="btn btn-solid" disabled={selected.length === 0} onClick={publishSelected}>
+                  Publish {selected.length} insight{selected.length !== 1 ? "s" : ""}
+                </button>
+              )}
+              {adminSubTab === "add" && adminTab === "manual" && (
+                <button className="btn btn-solid" onClick={addInsight}>Publish</button>
+              )}
             </div>
           </div>
         </div>
