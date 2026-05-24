@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { db, isFirebaseConfigured } from "./firebase";
+import { collection, getDocs, addDoc, deleteDoc, doc } from "firebase/firestore";
 
 
 const ADMIN_PASS = "wtfnikhil";
@@ -825,6 +827,66 @@ const css = `
   .footer-logo { font-family: var(--font-heading); font-size: 24px; font-weight: 800; color: var(--ink); text-transform: uppercase; text-shadow: 2px 2px 0px var(--accent-pink); }
   .footer-logo span { color: var(--accent-pink); text-shadow: 2px 2px 0px var(--ink); }
 
+  /* Database Backup Tab CSS */
+  .backup-section {
+    background: #fff;
+    border: var(--border-thin);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 3.5px 3.5px 0px #000;
+  }
+  .backup-section h3 {
+    font-family: var(--font-heading);
+    font-size: 16px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  .backup-section p {
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 14px;
+    line-height: 1.5;
+  }
+  .storage-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border: var(--border-thin);
+    border-radius: 6px;
+    font-family: var(--font-pixel);
+    font-size: 9px;
+    text-transform: uppercase;
+    font-weight: 700;
+    box-shadow: 2px 2px 0px #000;
+    margin-bottom: 20px;
+  }
+  .storage-badge.local {
+    background: var(--accent-yellow);
+    color: #000;
+  }
+  .storage-badge.cloud {
+    background: var(--accent-green);
+    color: #000;
+  }
+  .badge-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #000;
+    display: inline-block;
+  }
+  .storage-badge.cloud .badge-dot {
+    background: #000;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0% { transform: scale(0.9); opacity: 1; }
+    50% { transform: scale(1.2); opacity: 0.5; }
+    100% { transform: scale(0.9); opacity: 1; }
+  }
+
 `;
 
 async function extractInsightsWithAI(transcript, episodeName) {
@@ -865,11 +927,14 @@ Respond ONLY with a JSON array, no preamble, no markdown backticks:
 
 export default function App() {
   const [insights, setInsights] = useState(() => {
+    if (isFirebaseConfigured) return [];
     try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : SAMPLE_INSIGHTS; } catch { return SAMPLE_INSIGHTS; }
   });
   const [suggestions, setSuggestions] = useState(() => {
+    if (isFirebaseConfigured) return [];
     try { const s = localStorage.getItem(SUGGESTIONS_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
   });
+  const [dbLoading, setDbLoading] = useState(isFirebaseConfigured);
 
   const [topic, setTopic] = useState("all");
   const [epFilter, setEpFilter] = useState("all");
@@ -901,8 +966,43 @@ export default function App() {
 
   const passRef = useRef();
 
-  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(insights)); }, [insights]);
-  useEffect(() => { localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(suggestions)); }, [suggestions]);
+  useEffect(() => {
+    if (isFirebaseConfigured) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(insights));
+  }, [insights]);
+
+  useEffect(() => {
+    if (isFirebaseConfigured) return;
+    localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(suggestions));
+  }, [suggestions]);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    setDbLoading(true);
+    const loadData = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "insights"));
+        const list = [];
+        snapshot.forEach((doc) => {
+          list.push({ ...doc.data(), id: doc.id });
+        });
+        list.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        setInsights(list);
+
+        const sugSnapshot = await getDocs(collection(db, "suggestions"));
+        const sugList = [];
+        sugSnapshot.forEach((doc) => {
+          sugList.push({ ...doc.data(), id: doc.id });
+        });
+        setSuggestions(sugList);
+      } catch (err) {
+        console.error("Error loading from Cloud Firestore:", err);
+      } finally {
+        setDbLoading(false);
+      }
+    };
+    loadData();
+  }, []);
 
   useEffect(() => {
     const s = document.createElement("style");
@@ -966,16 +1066,39 @@ export default function App() {
     } else { setAuthErr(true); }
   };
 
-  const addInsight = () => {
+  const addInsight = async () => {
     const errs = {};
     if (!form.ep.trim()) errs.ep = "Required";
     if (!form.quote.trim()) errs.quote = "Required";
     if (!form.takeaway.trim()) errs.takeaway = "Required";
     setFormErr(errs);
     if (Object.keys(errs).length) return;
-    setInsights((prev) => [{ ...form, id: Date.now().toString(), date: new Date().toISOString().split("T")[0] }, ...prev]);
-    setForm({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
-    showToast("Insight published");
+
+    const newInsight = {
+      ep: form.ep,
+      quote: form.quote,
+      takeaway: form.takeaway,
+      topic: form.topic,
+      ts: form.ts || "",
+      date: new Date().toISOString().split("T")[0],
+    };
+
+    if (isFirebaseConfigured) {
+      try {
+        const docRef = await addDoc(collection(db, "insights"), newInsight);
+        setInsights((prev) => [{ ...newInsight, id: docRef.id }, ...prev]);
+        setForm({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
+        showToast("Insight published successfully!");
+      } catch (err) {
+        console.error(err);
+        showToast("Error publishing insight");
+      }
+    } else {
+      const localInsight = { ...newInsight, id: Date.now().toString() };
+      setInsights((prev) => [localInsight, ...prev]);
+      setForm({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
+      showToast("Insight published successfully!");
+    }
   };
 
   // eslint-disable-next-line no-unused-vars
@@ -1001,38 +1124,197 @@ export default function App() {
     setExtracting(false);
   };
 
-  const publishSelected = () => {
+  const publishSelected = async () => {
     const toAdd = selected.map((i) => ({
-      ...extracted[i], id: Date.now().toString() + i, ep: epName,
+      ep: epName,
+      quote: extracted[i].quote,
+      takeaway: extracted[i].takeaway,
+      topic: extracted[i].topic,
+      ts: extracted[i].ts || "",
       date: new Date().toISOString().split("T")[0],
     }));
-    setInsights((prev) => [...toAdd, ...prev]);
-    setExtracted([]); setSelected([]); setTranscript(""); setEpName("");
-    showToast(`${toAdd.length} insight${toAdd.length > 1 ? "s" : ""} published`);
+
+    if (isFirebaseConfigured) {
+      try {
+        const addedList = [];
+        for (const item of toAdd) {
+          const docRef = await addDoc(collection(db, "insights"), item);
+          addedList.push({ ...item, id: docRef.id });
+        }
+        setInsights((prev) => [...addedList, ...prev]);
+        setExtracted([]); setSelected([]); setTranscript(""); setEpName("");
+        showToast(`${toAdd.length} insight${toAdd.length > 1 ? "s" : ""} published`);
+      } catch (err) {
+        console.error(err);
+        showToast("Error publishing insights");
+      }
+    } else {
+      const addedList = toAdd.map((item, idx) => ({ ...item, id: Date.now().toString() + "_" + idx }));
+      setInsights((prev) => [...addedList, ...prev]);
+      setExtracted([]); setSelected([]); setTranscript(""); setEpName("");
+      showToast(`${toAdd.length} insight${toAdd.length > 1 ? "s" : ""} published`);
+    }
   };
 
-  const submitSuggestion = () => {
+  const submitSuggestion = async () => {
     const errs = {};
     if (!sugForm.ep.trim()) errs.ep = "Required";
     if (!sugForm.quote.trim()) errs.quote = "Required";
     setSugErr(errs);
     if (Object.keys(errs).length) return;
-    setSuggestions((prev) => [{ ...sugForm, id: Date.now().toString(), date: new Date().toISOString().split("T")[0], status: "pending" }, ...prev]);
-    setSugSent(true);
+
+    const newSug = {
+      ep: sugForm.ep,
+      quote: sugForm.quote,
+      context: sugForm.context || "",
+      name: sugForm.name || "",
+      date: new Date().toISOString().split("T")[0],
+      status: "pending",
+    };
+
+    if (isFirebaseConfigured) {
+      try {
+        const docRef = await addDoc(collection(db, "suggestions"), newSug);
+        setSuggestions((prev) => [{ ...newSug, id: docRef.id }, ...prev]);
+        setSugSent(true);
+      } catch (err) {
+        console.error(err);
+        showToast("Error submitting suggestion");
+      }
+    } else {
+      const localSug = { ...newSug, id: Date.now().toString() };
+      setSuggestions((prev) => [localSug, ...prev]);
+      setSugSent(true);
+    }
   };
 
-  const approveSuggestion = (sug) => {
-    setInsights((prev) => [{
-      id: Date.now().toString(), ep: sug.ep, quote: sug.quote,
-      takeaway: sug.context || "Community suggested insight.", topic: "Life", ts: "", date: sug.date
-    }, ...prev]);
-    setSuggestions((prev) => prev.filter((s) => s.id !== sug.id));
-    showToast("Suggestion published!");
+  const approveSuggestion = async (sug) => {
+    const newInsight = {
+      ep: sug.ep,
+      quote: sug.quote,
+      takeaway: sug.context || "Community suggested insight.",
+      topic: "Life",
+      ts: "",
+      date: sug.date || new Date().toISOString().split("T")[0]
+    };
+
+    if (isFirebaseConfigured) {
+      try {
+        const docRef = await addDoc(collection(db, "insights"), newInsight);
+        setInsights((prev) => [{ ...newInsight, id: docRef.id }, ...prev]);
+        await deleteDoc(doc(db, "suggestions", sug.id));
+        setSuggestions((prev) => prev.filter((s) => s.id !== sug.id));
+        showToast("Suggestion published!");
+      } catch (err) {
+        console.error(err);
+        showToast("Error approving suggestion");
+      }
+    } else {
+      const localInsight = { ...newInsight, id: Date.now().toString() };
+      setInsights((prev) => [localInsight, ...prev]);
+      setSuggestions((prev) => prev.filter((s) => s.id !== sug.id));
+      showToast("Suggestion published!");
+    }
   };
 
-  const rejectSuggestion = (id) => {
-    setSuggestions((prev) => prev.filter((s) => s.id !== id));
-    showToast("Suggestion removed");
+  const rejectSuggestion = async (id) => {
+    if (isFirebaseConfigured) {
+      try {
+        await deleteDoc(doc(db, "suggestions", id));
+        setSuggestions((prev) => prev.filter((s) => s.id !== id));
+        showToast("Suggestion dismissed");
+      } catch (err) {
+        console.error(err);
+        showToast("Error dismissing suggestion");
+      }
+    } else {
+      setSuggestions((prev) => prev.filter((s) => s.id !== id));
+      showToast("Suggestion removed");
+    }
+  };
+
+  const exportDatabase = () => {
+    try {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(insights, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "wtf_insights_backup.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      showToast("Database exported successfully!");
+    } catch (e) {
+      console.error(e);
+      showToast("Error exporting database");
+    }
+  };
+
+  const importDatabase = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!Array.isArray(data)) {
+          showToast("Invalid format: Must be a JSON array.");
+          return;
+        }
+
+        const isValid = data.every(item => item.ep && item.quote && item.takeaway);
+        if (!isValid && data.length > 0) {
+          showToast("Invalid backup: Missing required fields.");
+          return;
+        }
+
+        const overwrite = window.confirm(
+          `Found ${data.length} insights in file. Do you want to OVERWRITE the current database? (Cancel will MERGE them instead)`
+        );
+
+        let updatedInsights;
+        if (overwrite) {
+          updatedInsights = data.map((item, idx) => ({
+            ...item,
+            id: item.id || (Date.now().toString() + "_" + idx)
+          }));
+        } else {
+          const existingKeys = new Set(insights.map(i => `${i.ep.trim()}|${i.quote.trim()}`));
+          const newItems = data.filter(item => !existingKeys.has(`${item.ep.trim()}|${item.quote.trim()}`)).map((item, idx) => ({
+            ...item,
+            id: item.id || (Date.now().toString() + "_" + idx)
+          }));
+          updatedInsights = [...newItems, ...insights];
+        }
+
+        if (isFirebaseConfigured) {
+          showToast("Importing to Cloud Firestore...");
+          if (overwrite) {
+            const snapshot = await getDocs(collection(db, "insights"));
+            for (const d of snapshot.docs) {
+              await deleteDoc(doc(db, "insights", d.id));
+            }
+          }
+          const uploadedList = [];
+          for (const item of updatedInsights) {
+            const cleanedItem = { ...item };
+            delete cleanedItem.id;
+            const docRef = await addDoc(collection(db, "insights"), cleanedItem);
+            uploadedList.push({ ...cleanedItem, id: docRef.id });
+          }
+          setInsights(uploadedList);
+          showToast("Database fully synced to Firestore!");
+        } else {
+          setInsights(updatedInsights);
+          showToast(overwrite ? "Database fully overwritten!" : "Database successfully merged!");
+        }
+      } catch (err) {
+        console.error(err);
+        showToast("Failed to parse JSON file.");
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = null;
   };
 
   const topicGroups = TOPICS.map((t) => ({ name: t, items: filtered.filter((i) => i.topic === t) })).filter((g) => g.items.length > 0);
@@ -1127,7 +1409,14 @@ export default function App() {
         </div>
       )}
 
-      {view === "episodes" && (
+      {dbLoading ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "100px 20px" }}>
+          <div className="spinner" style={{ width: 40, height: 40, borderWidth: 4, marginBottom: 16 }} />
+          <div style={{ fontFamily: "var(--font-pixel)", fontSize: 11, textTransform: "uppercase" }}>Loading from Cloud Firestore...</div>
+        </div>
+      ) : (
+        <>
+          {view === "episodes" && (
         <div>
           {episodeGroups.length === 0 ? (
             <div className="ep-grid">
@@ -1211,6 +1500,8 @@ export default function App() {
             ))
           )}
         </div>
+      )}
+        </>
       )}
 
       {/* Suggest banner */}
@@ -1327,6 +1618,9 @@ export default function App() {
                 <button className={`tab-btn${adminSubTab === "suggestions" ? " active" : ""}`} onClick={() => setAdminSubTab("suggestions")}>
                   Suggestions {pendingSuggestions.length > 0 && `(${pendingSuggestions.length})`}
                 </button>
+                <button className={`tab-btn${adminSubTab === "database" ? " active" : ""}`} onClick={() => setAdminSubTab("database")}>
+                  Database
+                </button>
               </div>
 
               {adminSubTab === "add" && (
@@ -1441,6 +1735,42 @@ export default function App() {
                       </div>
                     ))
                   )}
+                </div>
+              )}
+
+              {adminSubTab === "database" && (
+                <div>
+                  <div className={`storage-badge ${isFirebaseConfigured ? "cloud" : "local"}`}>
+                    <span className="badge-dot" />
+                    {isFirebaseConfigured ? "Connected to Cloud Firestore" : "Local Storage Mode (Offline)"}
+                  </div>
+                  
+                  <div className="backup-section">
+                    <h3>💾 Export Database</h3>
+                    <p>Download the complete list of insights currently saved as a backup `.json` file.</p>
+                    <button className="btn btn-solid" onClick={exportDatabase}>Export Insights (JSON)</button>
+                  </div>
+
+                  <div className="backup-section">
+                    <h3>📥 Import Database</h3>
+                    <p>Upload a previously exported `.json` file to restore or merge insights. This will sync automatically to Firestore if live.</p>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <input 
+                        type="file" 
+                        accept=".json" 
+                        onChange={importDatabase} 
+                        style={{ 
+                          position: "absolute", 
+                          inset: 0, 
+                          opacity: 0, 
+                          cursor: "pointer", 
+                          width: "100%", 
+                          height: "100%" 
+                        }} 
+                      />
+                      <button className="btn" style={{ pointerEvents: "none" }}>Select & Import File</button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
