@@ -1060,7 +1060,7 @@ export default function App() {
 
   const [topic, setTopic] = useState("all");
   const [epFilter, setEpFilter] = useState("all");
-  const [speakerFilter, setSpeakerFilter] = useState("all");
+  const speakerFilter = "all";
   const [view, setView] = useState("episodes");
   const [search, setSearch] = useState("");
   const [showAuth, setShowAuth] = useState(false);
@@ -1243,7 +1243,6 @@ export default function App() {
   };
 
   const uniqueEps = [...new Set(insights.map((i) => i.ep))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-  const uniqueSpeakers = [...new Set(insights.map((i) => i.speaker).filter(Boolean))].sort();
 
   const getInsightOfTheDay = () => {
     if (insights.length === 0) return null;
@@ -1624,8 +1623,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* Episode & Speaker filter dropdowns */}
-      {(uniqueEps.length > 0 || uniqueSpeakers.length > 0) && (
+      {/* Episode filter dropdown */}
+      {uniqueEps.length > 0 && (
         <div className="filter-bar sub-filter">
           <span className="filter-label">Episode</span>
           <select
@@ -1639,26 +1638,12 @@ export default function App() {
             ))}
           </select>
 
-          {uniqueSpeakers.length > 0 && (
-            <>
-              <span className="filter-label" style={{ marginLeft: 16 }}>Speaker</span>
-              <select
-                value={speakerFilter}
-                onChange={(e) => setSpeakerFilter(e.target.value)}
-                className="neo-select"
-              >
-                <option value="all">All speakers</option>
-                {uniqueSpeakers.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </>
-          )}
-
-          {(epFilter !== "all" || speakerFilter !== "all") && (
+          {epFilter !== "all" && (
             <button
               className="btn-clear"
-              onClick={() => { setEpFilter("all"); setSpeakerFilter("all"); }}
+              onClick={() => setEpFilter("all")}
             >
-              ✕ Clear Filters
+              ✕ Clear Filter
             </button>
           )}
         </div>
