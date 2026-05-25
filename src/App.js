@@ -1316,7 +1316,7 @@ export default function App() {
   const deleteInsight = (id) => { setInsights((prev) => prev.filter((i) => i.id !== id)); showToast("Removed"); };
 
   const shareInsight = (ins) => {
-    const text = `"${ins.quote}"\n\n— from the WTF is Podcast by @nikhilkamathcio\n\nMore insights: wtfinsights.vercel.app`;
+    const text = `"${ins.quote}"\n\n— from the "WTF is" Podcast by @nikhilkamathcio\n\nMore insights: wtfinsights.vercel.app`;
     navigator.clipboard.writeText(text).then(() => {
       setCopiedId(ins.id);
       setTimeout(() => setCopiedId(null), 2000);
@@ -1559,7 +1559,7 @@ export default function App() {
       <header className="masthead">
         <div>
           <div className="logo">WTF<span>Insights</span></div>
-          <div className="logo-sub">Curated from the WTF is Podcast</div>
+          <div className="logo-sub">Curated from the "WTF is" Podcast</div>
         </div>
         <div className="masthead-right">
           <div className="search-wrap">
@@ -1579,7 +1579,7 @@ export default function App() {
         <div>
           <div className="hero-label">Every episode. Every insight. No fluff.</div>
           <h1 className="hero-title">What Nikhil Kamath<br />actually <em>said.</em></h1>
-          <p className="hero-desc">The sharpest quotes, frameworks, and takeaways from the WTF is podcast — distilled for people who'd rather think than scroll.</p>
+          <p className="hero-desc">The sharpest quotes, frameworks, and takeaways from the "WTF is" podcast — distilled for people who'd rather think than scroll.</p>
           <div className="hero-actions">
             <button className="btn btn-accent" onClick={randomInsight}>🎲 Random Insight</button>
           </div>
@@ -1785,7 +1785,7 @@ export default function App() {
 
       <footer className="footer">
         <div className="footer-text">
-          Not affiliated with Nikhil Kamath or WTF is Podcast. Built by Yudhajit Mondal (
+          Not affiliated with Nikhil Kamath or the "WTF is" Podcast. Built by Yudhajit Mondal (
           <a href="https://www.linkedin.com/in/yudhajit-mondal-28a67725b/" target="_blank" rel="noreferrer">LinkedIn</a> ·{" "}
           <a href="https://x.com/MondalYudhajit" target="_blank" rel="noreferrer">X</a>)
         </div>
