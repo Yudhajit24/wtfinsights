@@ -999,7 +999,7 @@ async function extractInsightsWithAI(transcript, episodeName, apiKey) {
 Episode: "${episodeName}"
 
 Transcript:
-${transcript.slice(0, 12000)}
+${transcript.slice(0, 150000)}
 
 Extract the 5-8 most insightful, quotable moments. For each one:
 - Find the speaker's exact words (or close paraphrase if transcript is rough)
