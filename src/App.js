@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { db, isFirebaseConfigured } from "./firebase";
 import { collection, getDocs, addDoc, deleteDoc, doc } from "firebase/firestore";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+gsap.registerPlugin(ScrollTrigger);
 
 
 const ADMIN_PASS = process.env.REACT_APP_ADMIN_PASSCODE || "wtfnikhil";
@@ -936,6 +940,7 @@ Respond ONLY with a JSON array, no preamble, no markdown backticks:
 }
 
 export default function App() {
+  const appRef = useRef(null);
   const [insights, setInsights] = useState(() => {
     if (isFirebaseConfigured) return [];
     try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : SAMPLE_INSIGHTS; } catch { return SAMPLE_INSIGHTS; }
@@ -975,6 +980,51 @@ export default function App() {
   const [extractErr, setExtractErr] = useState("");
 
   const passRef = useRef();
+
+  // --- GSAP ANIMATIONS ---
+  useEffect(() => {
+    if (dbLoading) return;
+    const ctx = gsap.context(() => {
+      gsap.from(".hero-title, .hero-desc, .hero-actions, .stat-item", {
+        y: 40,
+        opacity: 0,
+        duration: 0.8,
+        stagger: 0.1,
+        ease: "back.out(1.5)",
+        delay: 0.1,
+        clearProps: "all"
+      });
+    }, appRef);
+    return () => ctx.revert();
+  }, [dbLoading]);
+
+  useEffect(() => {
+    if (dbLoading) return;
+    const ctx = gsap.context(() => {
+      ScrollTrigger.getAll().forEach(t => t.kill());
+      const cards = gsap.utils.toArray('.ins-card, .tl-item');
+      cards.forEach((card, i) => {
+        gsap.fromTo(card, 
+          { y: 50, opacity: 0 },
+          {
+            scrollTrigger: {
+              trigger: card,
+              start: "top bottom-=40",
+              toggleActions: "play none none none"
+            },
+            y: 0,
+            opacity: 1,
+            duration: 0.6,
+            ease: "power2.out",
+            delay: i < 6 ? i * 0.08 : 0,
+            clearProps: "all"
+          }
+        );
+      });
+    }, appRef);
+    return () => ctx.revert();
+  }, [insights, view, topic, epFilter, search, dbLoading]);
+  // ----------------------
 
   useEffect(() => {
     if (isFirebaseConfigured) return;
@@ -1342,7 +1392,7 @@ export default function App() {
   });
 
   return (
-    <>
+    <div ref={appRef}>
       <div className="ballpit-wrap" />
       <div className="site-container">
       <header className="masthead">
@@ -1798,6 +1848,6 @@ export default function App() {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
