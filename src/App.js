@@ -993,7 +993,7 @@ const css = `
 
 `;
 
-async function extractInsightsWithAI(transcript, episodeName) {
+async function extractInsightsWithAI(transcript, episodeName, apiKey) {
   const prompt = `You are extracting insights from a podcast transcript of the WTF is podcast by Nikhil Kamath.
 
 Episode: "${episodeName}"
@@ -1015,7 +1015,7 @@ Respond ONLY with a JSON array, no preamble, no markdown backticks:
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.REACT_APP_GROQ_KEY}`,
+      "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
@@ -1087,6 +1087,8 @@ export default function App() {
   const [extracted, setExtracted] = useState([]);
   const [selected, setSelected] = useState([]);
   const [extractErr, setExtractErr] = useState("");
+  const [groqKey, setGroqKey] = useState(() => localStorage.getItem("wtf_groq_key") || "");
+  const [showKey, setShowKey] = useState(false);
   const [activeVideo, setActiveVideo] = useState(null); // { videoId, startSec, title }
 
   const passRef = useRef();
@@ -1324,9 +1326,14 @@ export default function App() {
   const handleExtract = async () => {
     if (!transcript.trim()) { setExtractErr("Paste the transcript first."); return; }
     if (!epName.trim()) { setExtractErr("Enter the episode name first."); return; }
+    const keyToUse = groqKey.trim() || process.env.REACT_APP_GROQ_KEY;
+    if (!keyToUse) {
+      setExtractErr("Missing Groq API Key. Please enter your Groq API key in the input field below.");
+      return;
+    }
     setExtractErr(""); setExtracting(true); setExtracted([]); setSelected([]);
     try {
-      const results = await extractInsightsWithAI(transcript, epName);
+      const results = await extractInsightsWithAI(transcript, epName, keyToUse);
       setExtracted(results);
       setSelected(results.map((_, i) => i));
     } catch (e) { setExtractErr(e.message || "Something went wrong. Check your API key or try again."); }
@@ -1909,6 +1916,41 @@ export default function App() {
                       <div className="ep-name-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                         <input placeholder="Episode name — e.g. WTF is Investing?" value={epName} onChange={(e) => setEpName(e.target.value)} />
                         <input placeholder="YouTube URL — e.g. https://youtu.be/abc123" value={epVideoUrl} onChange={(e) => setEpVideoUrl(e.target.value)} />
+                      </div>
+                      <div className="ep-name-row" style={{ marginBottom: 16, position: 'relative' }}>
+                        <input 
+                          type={showKey ? "text" : "password"} 
+                          placeholder="Groq API Key (Optional — overrides app default key)" 
+                          value={groqKey} 
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setGroqKey(val);
+                            localStorage.setItem("wtf_groq_key", val);
+                          }}
+                          style={{ width: "100%", boxSizing: "border-box", paddingRight: 45 }}
+                        />
+                        <button 
+                          onClick={() => setShowKey(!showKey)} 
+                          style={{
+                            position: 'absolute',
+                            right: 12,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: 16,
+                            padding: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 10
+                          }}
+                          type="button"
+                          title={showKey ? "Hide key" : "Show key"}
+                        >
+                          {showKey ? "👁️" : "👁️‍🗨️"}
+                        </button>
                       </div>
                       <textarea className="transcript-box" placeholder="Paste the YouTube transcript here..." value={transcript} onChange={(e) => setTranscript(e.target.value)} />
                       {extractErr && <div className="error-msg" style={{ marginBottom: 10 }}>{extractErr}</div>}
