@@ -1024,10 +1024,26 @@ Respond ONLY with a JSON array, no preamble, no markdown backticks:
     }),
   });
 
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({}));
+    const msg = errBody?.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+    throw new Error(msg);
+  }
+
   const data = await response.json();
   const text = data.choices?.[0]?.message?.content || "";
-  const clean = text.replace(/```json|```/g, "").trim();
-  return JSON.parse(clean);
+
+  // Strip markdown code fences and find the JSON array
+  let clean = text.replace(/```json|```/g, "").trim();
+  // Extract just the [...] array in case there's prose around it
+  const arrayMatch = clean.match(/(\[\s*\{[\s\S]*\}\s*\])/m);
+  if (arrayMatch) clean = arrayMatch[1];
+
+  try {
+    return JSON.parse(clean);
+  } catch (parseErr) {
+    throw new Error(`AI returned unexpected format. Raw response: ${text.slice(0, 300)}`);
+  }
 }
 
 export default function App() {
@@ -1313,7 +1329,7 @@ export default function App() {
       const results = await extractInsightsWithAI(transcript, epName);
       setExtracted(results);
       setSelected(results.map((_, i) => i));
-    } catch (e) { setExtractErr("Something went wrong. Check your API key or try again."); }
+    } catch (e) { setExtractErr(e.message || "Something went wrong. Check your API key or try again."); }
     setExtracting(false);
   };
 
