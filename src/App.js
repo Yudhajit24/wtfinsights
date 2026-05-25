@@ -555,6 +555,96 @@ const css = `
     transform: translate(1px, 1px);
   }
 
+  .play-btn {
+    font-family: var(--font-body);
+    font-size: 11px; font-weight: 700;
+    background: var(--accent-yellow); border: var(--border-thin); border-radius: 6px;
+    padding: 5px 12px; color: var(--ink); cursor: pointer; transition: all 0.15s ease; 
+    display: flex; align-items: center; gap: 6px;
+    box-shadow: 2.5px 2.5px 0px #000;
+    white-space: nowrap;
+  }
+  .play-btn:hover { 
+    background: var(--accent-pink);
+    color: #fff;
+    transform: translate(-1px, -1px);
+    box-shadow: 3.5px 3.5px 0px #000;
+  }
+
+  /* Video Modal */
+  .video-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    backdrop-filter: blur(4px);
+  }
+  .video-modal-box {
+    background: #fff;
+    border: var(--border-thick);
+    box-shadow: 10px 10px 0px #000;
+    border-radius: 4px;
+    width: 100%;
+    max-width: 760px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .video-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: var(--border-thin);
+    background: var(--paper);
+  }
+  .video-modal-title {
+    font-family: var(--font-pixel);
+    font-size: 9px;
+    color: var(--accent-pink);
+    text-transform: uppercase;
+    max-width: calc(100% - 50px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .video-modal-close {
+    width: 30px; height: 30px;
+    border: var(--border-thin);
+    background: var(--accent-yellow);
+    font-size: 16px; font-weight: 800;
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 2px 2px 0px #000;
+    flex-shrink: 0;
+  }
+  .video-modal-close:hover { background: var(--accent-pink); color: #fff; }
+  .video-modal-iframe-wrap {
+    position: relative;
+    width: 100%;
+    padding-top: 56.25%;
+  }
+  .video-modal-iframe-wrap iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+  .video-modal-footer {
+    padding: 10px 16px;
+    border-top: var(--border-thin);
+    background: var(--paper);
+    font-family: var(--font-pixel);
+    font-size: 8px;
+    color: #666;
+  }
+
   .empty-state { 
     padding: 80px 32px; 
     text-align: center; 
@@ -975,13 +1065,39 @@ export default function App() {
   const [highlightedInsight, setHighlightedInsight] = useState(null);
 
   const [epName, setEpName] = useState("");
+  const [epVideoUrl, setEpVideoUrl] = useState("");
   const [transcript, setTranscript] = useState("");
   const [extracting, setExtracting] = useState(false);
   const [extracted, setExtracted] = useState([]);
   const [selected, setSelected] = useState([]);
   const [extractErr, setExtractErr] = useState("");
+  const [activeVideo, setActiveVideo] = useState(null); // { videoId, startSec, title }
 
   const passRef = useRef();
+
+  const parseYouTubeVideoId = (url) => {
+    if (!url) return "";
+    try {
+      const u = new URL(url);
+      if (u.hostname === "youtu.be") return u.pathname.slice(1).split("?")[0];
+      return u.searchParams.get("v") || "";
+    } catch { return url.trim(); }
+  };
+
+  const parseTimestampToSeconds = (ts) => {
+    if (!ts) return 0;
+    const parts = ts.replace(/[hms]/g, "").split(":").map(Number);
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    return parts[0] || 0;
+  };
+
+  const openVideoClip = (ins) => {
+    const videoId = ins.videoId;
+    if (!videoId) return;
+    const startSec = parseTimestampToSeconds(ins.ts);
+    setActiveVideo({ videoId, startSec, title: ins.ep });
+  };
 
   // --- GSAP ANIMATIONS ---
   useEffect(() => {
@@ -1151,6 +1267,7 @@ export default function App() {
 
     const newInsight = {
       ep: form.ep,
+      videoId: parseYouTubeVideoId(form.videoUrl || ""),
       speaker: form.speaker,
       quote: form.quote,
       takeaway: form.takeaway,
@@ -1163,7 +1280,7 @@ export default function App() {
       try {
         const docRef = await addDoc(collection(db, "insights"), newInsight);
         setInsights((prev) => [{ ...newInsight, id: docRef.id }, ...prev]);
-        setForm({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
+        setForm({ ep: "", speaker: "Nikhil Kamath", videoUrl: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
         showToast("Insight published successfully!");
       } catch (err) {
         console.error(err);
@@ -1172,7 +1289,7 @@ export default function App() {
     } else {
       const localInsight = { ...newInsight, id: Date.now().toString() };
       setInsights((prev) => [localInsight, ...prev]);
-      setForm({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
+      setForm({ ep: "", speaker: "Nikhil Kamath", videoUrl: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
       showToast("Insight published successfully!");
     }
   };
@@ -1201,8 +1318,10 @@ export default function App() {
   };
 
   const publishSelected = async () => {
+    const videoId = parseYouTubeVideoId(epVideoUrl);
     const toAdd = selected.map((i) => ({
       ep: epName,
+      videoId: videoId || "",
       speaker: extracted[i].speaker || "Nikhil Kamath",
       quote: extracted[i].quote,
       takeaway: extracted[i].takeaway,
@@ -1219,7 +1338,7 @@ export default function App() {
           addedList.push({ ...item, id: docRef.id });
         }
         setInsights((prev) => [...addedList, ...prev]);
-        setExtracted([]); setSelected([]); setTranscript(""); setEpName("");
+        setExtracted([]); setSelected([]); setTranscript(""); setEpName(""); setEpVideoUrl("");
         showToast(`${toAdd.length} insight${toAdd.length > 1 ? "s" : ""} published`);
       } catch (err) {
         console.error(err);
@@ -1228,7 +1347,7 @@ export default function App() {
     } else {
       const addedList = toAdd.map((item, idx) => ({ ...item, id: Date.now().toString() + "_" + idx }));
       setInsights((prev) => [...addedList, ...prev]);
-      setExtracted([]); setSelected([]); setTranscript(""); setEpName("");
+      setExtracted([]); setSelected([]); setTranscript(""); setEpName(""); setEpVideoUrl("");
       showToast(`${toAdd.length} insight${toAdd.length > 1 ? "s" : ""} published`);
     }
   };
@@ -1561,6 +1680,15 @@ export default function App() {
                               <span className="card-tag">{ins.topic}</span>
                               <div className="card-meta">
                                 {ins.ts && <span className="card-ts">{ins.ts}</span>}
+                                {ins.videoId && ins.ts && (
+                                  <button
+                                    className="play-btn"
+                                    onClick={() => openVideoClip(ins)}
+                                    title="Watch this clip on YouTube"
+                                  >
+                                    ▶ Watch Clip
+                                  </button>
+                                )}
                                 <button
                                   className={`share-btn${copiedId === ins.id ? " copied" : ""}`}
                                   onClick={() => shareInsight(ins)}
@@ -1762,8 +1890,9 @@ export default function App() {
                           3. Select all the text, copy, paste below
                         </div>
                       </div>
-                      <div className="ep-name-row">
+                      <div className="ep-name-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                         <input placeholder="Episode name — e.g. WTF is Investing?" value={epName} onChange={(e) => setEpName(e.target.value)} />
+                        <input placeholder="YouTube URL — e.g. https://youtu.be/abc123" value={epVideoUrl} onChange={(e) => setEpVideoUrl(e.target.value)} />
                       </div>
                       <textarea className="transcript-box" placeholder="Paste the YouTube transcript here..." value={transcript} onChange={(e) => setTranscript(e.target.value)} />
                       {extractErr && <div className="error-msg" style={{ marginBottom: 10 }}>{extractErr}</div>}
@@ -1826,6 +1955,10 @@ export default function App() {
                         <label>Key takeaway</label>
                         <textarea placeholder="What's the core insight?" value={form.takeaway} className={formErr.takeaway ? "field-error" : ""} onChange={(e) => setForm({ ...form, takeaway: e.target.value })} />
                         {formErr.takeaway && <div className="error-msg">Required</div>}
+                      </div>
+                      <div className="field">
+                        <label>YouTube Video URL (optional, enables Watch Clip)</label>
+                        <input placeholder="e.g. https://youtu.be/xXxXxXxXxXx" value={form.videoUrl || ""} onChange={(e) => setForm({ ...form, videoUrl: e.target.value })} />
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                         <div className="field">
@@ -1912,6 +2045,29 @@ export default function App() {
               {adminSubTab === "add" && adminTab === "manual" && (
                 <button className="btn btn-solid" onClick={addInsight}>Publish</button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* YouTube Video Modal */}
+      {activeVideo && (
+        <div className="video-modal-backdrop" onClick={() => setActiveVideo(null)}>
+          <div className="video-modal-box" onClick={(e) => e.stopPropagation()}>
+            <div className="video-modal-header">
+              <div className="video-modal-title">▶ {activeVideo.title}</div>
+              <button className="video-modal-close" onClick={() => setActiveVideo(null)}>✕</button>
+            </div>
+            <div className="video-modal-iframe-wrap">
+              <iframe
+                src={`https://www.youtube.com/embed/${activeVideo.videoId}?start=${activeVideo.startSec}&autoplay=1&rel=0`}
+                title="YouTube video player"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+            <div className="video-modal-footer">
+              Starting at {activeVideo.startSec}s · Click outside to close
             </div>
           </div>
         </div>
