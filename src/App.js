@@ -912,13 +912,14 @@ Transcript:
 ${transcript.slice(0, 12000)}
 
 Extract the 5-8 most insightful, quotable moments. For each one:
-- Find Nikhil's exact words (or close paraphrase if transcript is rough)
+- Find the speaker's exact words (or close paraphrase if transcript is rough)
+- Identify the speaker (e.g. "Nikhil Kamath", "Kunal Shah", etc.)
 - Write a plain-language takeaway (1-2 sentences)
 - Classify into one of: Investing, Startups, Technology, Health, Life
 - Estimate a rough timestamp if inferable (otherwise leave empty string)
 
 Respond ONLY with a JSON array, no preamble, no markdown backticks:
-[{"quote":"...","takeaway":"...","topic":"Investing","ts":"0:12:34"}]`;
+[{"quote":"...","speaker":"Nikhil Kamath","takeaway":"...","topic":"Investing","ts":"0:12:34"}]`;
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -953,6 +954,7 @@ export default function App() {
 
   const [topic, setTopic] = useState("all");
   const [epFilter, setEpFilter] = useState("all");
+  const [speakerFilter, setSpeakerFilter] = useState("all");
   const [view, setView] = useState("episodes");
   const [search, setSearch] = useState("");
   const [showAuth, setShowAuth] = useState(false);
@@ -961,8 +963,8 @@ export default function App() {
   const [authErr, setAuthErr] = useState(false);
   const [toast, setToast] = useState({ show: false, msg: "" });
   const [formErr, setFormErr] = useState({});
-  const [form, setForm] = useState({ ep: "", quote: "", takeaway: "", topic: "Investing", ts: "" });
-  const [sugForm, setSugForm] = useState({ ep: "", quote: "", context: "", name: "" });
+  const [form, setForm] = useState({ ep: "", speaker: "Nikhil Kamath", quote: "", takeaway: "", topic: "Investing", ts: "" });
+  const [sugForm, setSugForm] = useState({ ep: "", speaker: "", quote: "", context: "", name: "" });
   const [sugErr, setSugErr] = useState({});
   const [sugSent, setSugSent] = useState(false);
   const [adminTab, setAdminTab] = useState("ai");
@@ -1105,15 +1107,27 @@ export default function App() {
   };
 
   const uniqueEps = [...new Set(insights.map((i) => i.ep))];
+  const uniqueSpeakers = [...new Set(insights.map((i) => i.speaker).filter(Boolean))].sort();
+
+  const getInsightOfTheDay = () => {
+    if (insights.length === 0) return null;
+    const today = new Date().toISOString().split("T")[0];
+    let hash = 0;
+    for (let i = 0; i < today.length; i++) hash = today.charCodeAt(i) + ((hash << 5) - hash);
+    return insights[Math.abs(hash) % insights.length];
+  };
+  const insightOfTheDay = getInsightOfTheDay();
 
   const filtered = insights.filter((i) => {
     const matchTopic = topic === "all" || i.topic === topic;
     const matchEp = epFilter === "all" || i.ep === epFilter;
+    const matchSpeaker = speakerFilter === "all" || i.speaker === speakerFilter;
     const matchSearch = !search ||
       i.quote.toLowerCase().includes(search.toLowerCase()) ||
       i.ep.toLowerCase().includes(search.toLowerCase()) ||
+      (i.speaker && i.speaker.toLowerCase().includes(search.toLowerCase())) ||
       i.takeaway.toLowerCase().includes(search.toLowerCase());
-    return matchTopic && matchEp && matchSearch;
+    return matchTopic && matchEp && matchSpeaker && matchSearch;
   });
 
   const uniqueTopics = [...new Set(insights.map((i) => i.topic))].length;
@@ -1129,6 +1143,7 @@ export default function App() {
   const addInsight = async () => {
     const errs = {};
     if (!form.ep.trim()) errs.ep = "Required";
+    if (!form.speaker.trim()) errs.speaker = "Required";
     if (!form.quote.trim()) errs.quote = "Required";
     if (!form.takeaway.trim()) errs.takeaway = "Required";
     setFormErr(errs);
@@ -1136,6 +1151,7 @@ export default function App() {
 
     const newInsight = {
       ep: form.ep,
+      speaker: form.speaker,
       quote: form.quote,
       takeaway: form.takeaway,
       topic: form.topic,
@@ -1187,6 +1203,7 @@ export default function App() {
   const publishSelected = async () => {
     const toAdd = selected.map((i) => ({
       ep: epName,
+      speaker: extracted[i].speaker || "Nikhil Kamath",
       quote: extracted[i].quote,
       takeaway: extracted[i].takeaway,
       topic: extracted[i].topic,
@@ -1225,6 +1242,7 @@ export default function App() {
 
     const newSug = {
       ep: sugForm.ep,
+      speaker: sugForm.speaker || "",
       quote: sugForm.quote,
       context: sugForm.context || "",
       name: sugForm.name || "",
@@ -1251,6 +1269,7 @@ export default function App() {
   const approveSuggestion = async (sug) => {
     const newInsight = {
       ep: sug.ep,
+      speaker: sug.speaker || "Nikhil Kamath",
       quote: sug.quote,
       takeaway: sug.context || "Community suggested insight.",
       topic: "Life",
@@ -1430,6 +1449,20 @@ export default function App() {
         </div>
       </section>
 
+      {insightOfTheDay && (
+        <section className="iotd-section" style={{ padding: '32px', background: 'var(--paper)', borderBottom: 'var(--border-thick)' }}>
+          <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--accent-pink)', marginBottom: 16, textTransform: 'uppercase' }}>🌟 Insight of the Day</div>
+          <div className="ins-card highlight-card" style={{ border: '3px solid var(--accent-pink)', boxShadow: '8px 8px 0px var(--accent-pink)', background: '#fff' }}>
+            <div className="card-ep-label">
+              {insightOfTheDay.ep}
+              {insightOfTheDay.speaker && <span style={{ marginLeft: 8, color: "var(--accent-pink)", fontWeight: 800 }}>• {insightOfTheDay.speaker}</span>}
+            </div>
+            <div className="card-quote">{insightOfTheDay.quote}</div>
+            <div className="card-takeaway" style={{ background: 'var(--paper)', border: 'var(--border-thin)' }}>{insightOfTheDay.takeaway}</div>
+          </div>
+        </section>
+      )}
+
       {/* Topic filter */}
       <div className="filter-bar">
         <span className="filter-label">Topic</span>
@@ -1444,8 +1477,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* Episode filter dropdown */}
-      {uniqueEps.length > 0 && (
+      {/* Episode & Speaker filter dropdowns */}
+      {(uniqueEps.length > 0 || uniqueSpeakers.length > 0) && (
         <div className="filter-bar sub-filter">
           <span className="filter-label">Episode</span>
           <select
@@ -1458,12 +1491,27 @@ export default function App() {
               <option key={ep} value={ep}>{ep}</option>
             ))}
           </select>
-          {epFilter !== "all" && (
+
+          {uniqueSpeakers.length > 0 && (
+            <>
+              <span className="filter-label" style={{ marginLeft: 16 }}>Speaker</span>
+              <select
+                value={speakerFilter}
+                onChange={(e) => setSpeakerFilter(e.target.value)}
+                className="neo-select"
+              >
+                <option value="all">All speakers</option>
+                {uniqueSpeakers.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </>
+          )}
+
+          {(epFilter !== "all" || speakerFilter !== "all") && (
             <button
               className="btn-clear"
-              onClick={() => setEpFilter("all")}
+              onClick={() => { setEpFilter("all"); setSpeakerFilter("all"); }}
             >
-              ✕ Clear
+              ✕ Clear Filters
             </button>
           )}
         </div>
@@ -1502,6 +1550,11 @@ export default function App() {
                         {group.items.map((ins, idx) => (
                           <div className={`ins-card topic-${ins.topic.toLowerCase()}${highlightedInsight === ins.id ? ' highlighted' : ''}`} key={ins.id} id={`card-${ins.id}`}>
                             <div className="card-number">{String(idx + 1).padStart(2, '0')}</div>
+                            {ins.speaker && (
+                              <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 9, color: 'var(--accent-pink)', textTransform: 'uppercase', marginBottom: -4 }}>
+                                🗣 {ins.speaker}
+                              </div>
+                            )}
                             <div className="card-quote">{ins.quote}</div>
                             <div className="card-takeaway">{ins.takeaway}</div>
                             <div className="card-footer">
@@ -1548,6 +1601,11 @@ export default function App() {
                   {group.items.map((ins, i) => (
                     <div className={`tl-item topic-${ins.topic.toLowerCase()}`} key={ins.id}>
                       <div className="card-number">{String(i + 1).padStart(2, '0')}</div>
+                      {ins.speaker && (
+                        <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 9, color: 'var(--accent-pink)', textTransform: 'uppercase', marginBottom: -4 }}>
+                          🗣 {ins.speaker}
+                        </div>
+                      )}
                       <div className="tl-quote">{ins.quote}</div>
                       <div className="tl-meta">
                         <span className="tl-ep">{ins.ep}</span>
@@ -1609,6 +1667,10 @@ export default function App() {
                     <label>Episode name</label>
                     <input placeholder="e.g. WTF is Investing?" value={sugForm.ep} className={sugErr.ep ? "field-error" : ""} onChange={(e) => setSugForm({ ...sugForm, ep: e.target.value })} />
                     {sugErr.ep && <div className="error-msg">Required</div>}
+                  </div>
+                  <div className="field">
+                    <label>Speaker</label>
+                    <input placeholder="e.g. Kunal Shah" value={sugForm.speaker} className={sugErr.speaker ? "field-error" : ""} onChange={(e) => setSugForm({ ...sugForm, speaker: e.target.value })} />
                   </div>
                   <div className="field">
                     <label>The quote</label>
@@ -1725,6 +1787,7 @@ export default function App() {
                                   {selected.includes(i) && "✓"}
                                 </div>
                                 <div className="ext-body">
+                                  {ins.speaker && <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 9, color: 'var(--accent-pink)', textTransform: 'uppercase', marginBottom: 6 }}>🗣 {ins.speaker}</div>}
                                   <div className="ext-quote">{ins.quote}</div>
                                   <div className="ext-takeaway">{ins.takeaway}</div>
                                   <div className="ext-meta">
@@ -1748,6 +1811,11 @@ export default function App() {
                         <label>Episode title</label>
                         <input placeholder="e.g. WTF is Investing?" value={form.ep} className={formErr.ep ? "field-error" : ""} onChange={(e) => setForm({ ...form, ep: e.target.value })} />
                         {formErr.ep && <div className="error-msg">Required</div>}
+                      </div>
+                      <div className="field">
+                        <label>Speaker</label>
+                        <input placeholder="e.g. Kunal Shah" value={form.speaker} className={formErr.speaker ? "field-error" : ""} onChange={(e) => setForm({ ...form, speaker: e.target.value })} />
+                        {formErr.speaker && <div className="error-msg">Required</div>}
                       </div>
                       <div className="field">
                         <label>Quote</label>
