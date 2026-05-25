@@ -1089,6 +1089,7 @@ export default function App() {
   const [extractErr, setExtractErr] = useState("");
   const [groqKey, setGroqKey] = useState(() => localStorage.getItem("wtf_groq_key") || "");
   const [showKey, setShowKey] = useState(false);
+  const [extractRange, setExtractRange] = useState("12000");
   const [activeVideo, setActiveVideo] = useState(null); // { videoId, startSec, title }
 
   const passRef = useRef();
@@ -1333,7 +1334,9 @@ export default function App() {
     }
     setExtractErr(""); setExtracting(true); setExtracted([]); setSelected([]);
     try {
-      const results = await extractInsightsWithAI(transcript, epName, keyToUse);
+      const sliceLen = parseInt(extractRange, 10) || 12000;
+      const slicedTranscript = transcript.slice(0, sliceLen);
+      const results = await extractInsightsWithAI(slicedTranscript, epName, keyToUse);
       setExtracted(results);
       setSelected(results.map((_, i) => i));
     } catch (e) { setExtractErr(e.message || "Something went wrong. Check your API key or try again."); }
@@ -1917,40 +1920,65 @@ export default function App() {
                         <input placeholder="Episode name — e.g. WTF is Investing?" value={epName} onChange={(e) => setEpName(e.target.value)} />
                         <input placeholder="YouTube URL — e.g. https://youtu.be/abc123" value={epVideoUrl} onChange={(e) => setEpVideoUrl(e.target.value)} />
                       </div>
-                      <div className="ep-name-row" style={{ marginBottom: 16, position: 'relative' }}>
-                        <input 
-                          type={showKey ? "text" : "password"} 
-                          placeholder="Groq API Key (Optional — overrides app default key)" 
-                          value={groqKey} 
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setGroqKey(val);
-                            localStorage.setItem("wtf_groq_key", val);
-                          }}
-                          style={{ width: "100%", boxSizing: "border-box", paddingRight: 45 }}
-                        />
-                        <button 
-                          onClick={() => setShowKey(!showKey)} 
+                      <div className="ep-name-row" style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 10, marginBottom: 16 }}>
+                        <div style={{ position: 'relative', width: '100%' }}>
+                          <input 
+                            type={showKey ? "text" : "password"} 
+                            placeholder="Groq API Key (Optional)" 
+                            value={groqKey} 
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setGroqKey(val);
+                              localStorage.setItem("wtf_groq_key", val);
+                            }}
+                            style={{ width: "100%", boxSizing: "border-box", paddingRight: 45 }}
+                          />
+                          <button 
+                            onClick={() => setShowKey(!showKey)} 
+                            style={{
+                              position: 'absolute',
+                              right: 12,
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: 16,
+                              padding: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              zIndex: 10
+                            }}
+                            type="button"
+                            title={showKey ? "Hide key" : "Show key"}
+                          >
+                            {showKey ? "👁️" : "👁️‍🗨️"}
+                          </button>
+                        </div>
+                        <select 
+                          value={extractRange} 
+                          onChange={(e) => setExtractRange(e.target.value)}
                           style={{
-                            position: 'absolute',
-                            right: 12,
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            background: 'none',
-                            border: 'none',
+                            padding: '12px 16px',
+                            border: 'var(--border-thin)',
+                            borderRadius: 6,
+                            fontSize: 14,
+                            background: '#fff',
+                            color: 'var(--ink)',
+                            outline: 'none',
+                            fontFamily: 'var(--font-body)',
+                            boxShadow: '2.5px 2.5px 0px #000',
                             cursor: 'pointer',
-                            fontSize: 16,
-                            padding: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            zIndex: 10
+                            width: '100%',
+                            boxSizing: 'border-box'
                           }}
-                          type="button"
-                          title={showKey ? "Hide key" : "Show key"}
                         >
-                          {showKey ? "👁️" : "👁️‍🗨️"}
-                        </button>
+                          <option value="12000">15 mins (Free Tier safe)</option>
+                          <option value="25000">30 mins</option>
+                          <option value="50000">60 mins</option>
+                          <option value="150000">Full transcript</option>
+                        </select>
                       </div>
                       <textarea className="transcript-box" placeholder="Paste the YouTube transcript here..." value={transcript} onChange={(e) => setTranscript(e.target.value)} />
                       {extractErr && <div className="error-msg" style={{ marginBottom: 10 }}>{extractErr}</div>}
