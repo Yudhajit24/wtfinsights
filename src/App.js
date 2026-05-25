@@ -1242,7 +1242,7 @@ export default function App() {
     setTimeout(() => setToast({ show: false, msg: "" }), 2800);
   };
 
-  const uniqueEps = [...new Set(insights.map((i) => i.ep))];
+  const uniqueEps = [...new Set(insights.map((i) => i.ep))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
   const uniqueSpeakers = [...new Set(insights.map((i) => i.speaker).filter(Boolean))].sort();
 
   const getInsightOfTheDay = () => {
@@ -1555,6 +1555,7 @@ export default function App() {
     }
     epMap[ins.ep].push(ins);
   });
+  episodeGroups.sort((a, b) => a.ep.localeCompare(b.ep, undefined, { numeric: true, sensitivity: 'base' }));
 
   return (
     <div ref={appRef}>
