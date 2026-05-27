@@ -1118,8 +1118,8 @@ export default function App() {
   const [groqModel, setGroqModel] = useState("llama-3.3-70b-versatile");
   const [activeVideo, setActiveVideo] = useState(null); // { videoId, startSec, title }
   const [editingInsight, setEditingInsight] = useState(null);
-  const [renameOldEp, setRenameOldEp] = useState("all");
-  const [renameNewName, setRenameNewName] = useState("");
+  const [editingEp, setEditingEp] = useState(null);
+  const [editingEpNewName, setEditingEpNewName] = useState("");
 
   const passRef = useRef();
 
@@ -1384,12 +1384,15 @@ export default function App() {
     }
   };
 
-  const handleRenameEpisode = async () => {
-    if (renameOldEp === "all" || !renameNewName.trim()) return;
-    const oldName = renameOldEp;
-    const newName = renameNewName.trim();
+  const handleRenameEpisode = async (oldName, newName) => {
+    if (!oldName || !newName.trim()) return;
+    const cleanNewName = newName.trim();
+    if (oldName === cleanNewName) {
+      setEditingEp(null);
+      return;
+    }
 
-    if (window.confirm(`Are you sure you want to rename "${oldName}" to "${newName}" across all insights?`)) {
+    if (window.confirm(`Are you sure you want to rename "${oldName}" to "${cleanNewName}" across all insights?`)) {
       setDbLoading(true);
       try {
         const toUpdate = insights.filter((i) => i.ep === oldName);
@@ -1397,7 +1400,7 @@ export default function App() {
         if (isFirebaseConfigured) {
           const promises = toUpdate.map((ins) => {
             const docRef = doc(db, "insights", ins.id);
-            return updateDoc(docRef, { ep: newName });
+            return updateDoc(docRef, { ep: cleanNewName });
           });
           await Promise.all(promises);
           showToast("Successfully renamed episode in cloud!");
@@ -1405,9 +1408,9 @@ export default function App() {
           showToast("Successfully renamed episode locally!");
         }
 
-        setInsights((prev) => prev.map((i) => i.ep === oldName ? { ...i, ep: newName } : i));
-        setRenameOldEp("all");
-        setRenameNewName("");
+        setInsights((prev) => prev.map((i) => i.ep === oldName ? { ...i, ep: cleanNewName } : i));
+        setEditingEp(null);
+        setEditingEpNewName("");
       } catch (err) {
         console.error(err);
         showToast("Error renaming episode");
@@ -2331,62 +2334,74 @@ export default function App() {
                       </div>
 
                       <div className="backup-section" style={{ marginTop: 24 }}>
-                        <h3>✏️ Rename Episode</h3>
-                        <p style={{ marginBottom: 12 }}>Rename an episode title across all of its insights at once. This instantly updates homepage headings and filter selections.</p>
-                        <div className="ep-name-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-                          <select 
-                            value={renameOldEp} 
-                            onChange={(e) => {
-                              setRenameOldEp(e.target.value);
-                              setRenameNewName(e.target.value === "all" ? "" : e.target.value);
-                            }}
-                            style={{
-                              padding: '12px 16px',
-                              border: 'var(--border-thin)',
-                              borderRadius: 6,
-                              fontSize: 14,
-                              background: '#fff',
-                              color: 'var(--ink)',
-                              outline: 'none',
-                              fontFamily: 'var(--font-body)',
-                              boxShadow: '2.5px 2.5px 0px #000',
-                              cursor: 'pointer',
-                              width: '100%',
-                              boxSizing: 'border-box'
-                            }}
-                          >
-                            <option value="all">Select episode to rename...</option>
-                            {uniqueEps.map((ep) => (
-                              <option key={ep} value={ep}>{ep}</option>
-                            ))}
-                          </select>
-                          <input 
-                            placeholder="New episode title" 
-                            value={renameNewName} 
-                            onChange={(e) => setRenameNewName(e.target.value)}
-                            style={{
-                              padding: '12px 16px',
-                              border: 'var(--border-thin)',
-                              borderRadius: 6,
-                              fontSize: 14,
-                              background: '#fff',
-                              color: 'var(--ink)',
-                              outline: 'none',
-                              fontFamily: 'var(--font-body)',
-                              boxShadow: '2.5px 2.5px 0px #000',
-                              width: '100%',
-                              boxSizing: 'border-box'
-                            }}
-                          />
+                        <h3>✏️ Manage Episode Headings</h3>
+                        <p style={{ marginBottom: 12 }}>Edit episode titles/headings across all of their insights at once. This instantly updates homepage headings and filter selections.</p>
+                        <div style={{ maxHeight: 200, overflowY: 'auto', border: 'var(--border-thin)', borderRadius: 6, background: '#fff', padding: 8 }}>
+                          {uniqueEps.length === 0 ? (
+                            <div style={{ padding: 16, textAlign: 'center', color: '#999', fontSize: 13 }}>No episodes in database.</div>
+                          ) : (
+                            uniqueEps.map((ep) => (
+                              <div key={ep} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 6px', borderBottom: '1px solid #eee', gap: 10 }}>
+                                {editingEp === ep ? (
+                                  <div style={{ display: 'flex', flex: 1, gap: 8, alignItems: 'center' }}>
+                                    <input 
+                                      value={editingEpNewName}
+                                      onChange={(e) => setEditingEpNewName(e.target.value)}
+                                      style={{
+                                        padding: '6px 10px',
+                                        border: 'var(--border-thin)',
+                                        borderRadius: 4,
+                                        fontSize: 13,
+                                        background: '#fff',
+                                        color: 'var(--ink)',
+                                        outline: 'none',
+                                        fontFamily: 'var(--font-body)',
+                                        width: '100%',
+                                        boxSizing: 'border-box'
+                                      }}
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleRenameEpisode(ep, editingEpNewName);
+                                        else if (e.key === 'Escape') setEditingEp(null);
+                                      }}
+                                    />
+                                    <button 
+                                      className="btn btn-solid" 
+                                      style={{ padding: '6px 10px', fontSize: 11, minWidth: 50 }}
+                                      onClick={() => handleRenameEpisode(ep, editingEpNewName)}
+                                      disabled={!editingEpNewName.trim() || editingEpNewName.trim() === ep}
+                                    >
+                                      Save
+                                    </button>
+                                    <button 
+                                      className="btn" 
+                                      style={{ padding: '6px 10px', fontSize: 11, minWidth: 60 }}
+                                      onClick={() => setEditingEp(null)}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>
+                                      {ep}
+                                    </div>
+                                    <button 
+                                      className="btn" 
+                                      style={{ padding: '4px 8px', fontSize: 11, flexShrink: 0 }}
+                                      onClick={() => {
+                                        setEditingEp(ep);
+                                        setEditingEpNewName(ep);
+                                      }}
+                                    >
+                                      Edit Heading
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ))
+                          )}
                         </div>
-                        <button 
-                          className="btn btn-solid" 
-                          disabled={renameOldEp === "all" || !renameNewName.trim()} 
-                          onClick={handleRenameEpisode}
-                          style={{ width: '100%' }}
-                        >
-                          Rename Episode
-                        </button>
                       </div>
 
                       <div className="backup-section" style={{ marginTop: 24 }}>
