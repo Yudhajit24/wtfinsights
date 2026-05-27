@@ -1011,18 +1011,42 @@ Extract the 5-8 most insightful, quotable moments. For each one:
 Respond ONLY with a JSON array, no preamble, no markdown backticks:
 [{"quote":"...","speaker":"Nikhil Kamath","takeaway":"...","topic":"Investing","ts":"0:12:34"}]`;
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: model || "llama-3.3-70b-versatile",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.3,
-    }),
-  });
+  let response;
+  const retries = 3;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model || "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+      }),
+    });
+
+    if (response.status === 429) {
+      const errBody = await response.json().catch(() => ({}));
+      const msg = errBody?.error?.message || "";
+      if (msg.includes("per day (TPD)")) {
+        throw new Error(msg);
+      }
+      
+      let waitSec = parseFloat(response.headers.get("retry-after")) || 5;
+      const match = msg.match(/try again in (\d+(\.\d+)?)(s|ms)/);
+      if (match) {
+        const val = parseFloat(match[1]);
+        const unit = match[3];
+        waitSec = unit === "ms" ? val / 1000 : val;
+      }
+      
+      await new Promise((resolve) => setTimeout(resolve, (waitSec * 1000) + 500));
+      continue;
+    }
+    break;
+  }
 
   if (!response.ok) {
     const errBody = await response.json().catch(() => ({}));
@@ -1084,6 +1108,7 @@ export default function App() {
   const [epVideoUrl, setEpVideoUrl] = useState("");
   const [transcript, setTranscript] = useState("");
   const [extracting, setExtracting] = useState(false);
+  const [extractStatus, setExtractStatus] = useState("");
   const [extracted, setExtracted] = useState([]);
   const [selected, setSelected] = useState([]);
   const [extractErr, setExtractErr] = useState("");
@@ -1332,15 +1357,40 @@ export default function App() {
       setExtractErr("Missing Groq API Key. Please enter your Groq API key in the input field below.");
       return;
     }
-    setExtractErr(""); setExtracting(true); setExtracted([]); setSelected([]);
+    setExtractErr(""); setExtracting(true); setExtractStatus("Preparing transcript..."); setExtracted([]); setSelected([]);
     try {
       const sliceLen = parseInt(extractRange, 10) || 12000;
       const slicedTranscript = transcript.slice(0, sliceLen);
-      const results = await extractInsightsWithAI(slicedTranscript, epName, keyToUse, groqModel);
-      setExtracted(results);
-      setSelected(results.map((_, i) => i));
-    } catch (e) { setExtractErr(e.message || "Something went wrong. Check your API key or try again."); }
+      
+      // Split into chunks of 15,000 characters to prevent "Request too large" (max 6,000 tokens)
+      const chunkSize = 15000;
+      const chunks = [];
+      for (let i = 0; i < slicedTranscript.length; i += chunkSize) {
+        chunks.push(slicedTranscript.slice(i, i + chunkSize));
+      }
+      
+      let allResults = [];
+      for (let idx = 0; idx < chunks.length; idx++) {
+        setExtractStatus(`Processing segment ${idx + 1} of ${chunks.length}...`);
+        const results = await extractInsightsWithAI(chunks[idx], epName, keyToUse, groqModel);
+        if (Array.isArray(results)) {
+          allResults = [...allResults, ...results];
+        }
+        
+        // Wait 1.5s between chunks to prevent hitting rate limits
+        if (idx < chunks.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+      }
+      
+      setExtractStatus("");
+      setExtracted(allResults);
+      setSelected(allResults.map((_, i) => i));
+    } catch (e) { 
+      setExtractErr(e.message || "Something went wrong. Check your API key or try again."); 
+    }
     setExtracting(false);
+    setExtractStatus("");
   };
 
   const publishSelected = async () => {
@@ -1999,7 +2049,7 @@ export default function App() {
                       <button className="btn btn-accent" style={{ width: "100%" }} onClick={handleExtract} disabled={extracting}>
                         {extracting ? "Extracting..." : "Extract insights with AI"}
                       </button>
-                      {extracting && <div className="ai-loading" style={{ marginTop: 14 }}><div className="spinner" />Reading transcript...</div>}
+                      {extracting && <div className="ai-loading" style={{ marginTop: 14 }}><div className="spinner" />{extractStatus || "Reading transcript..."}</div>}
                       {extracted.length > 0 && (
                         <div style={{ marginTop: 18 }}>
                           <div className="divider" />
