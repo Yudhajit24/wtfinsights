@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { db, isFirebaseConfigured } from "./firebase";
-import { collection, getDocs, addDoc, deleteDoc, doc } from "firebase/firestore";
+import { collection, getDocs, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
@@ -1117,6 +1117,7 @@ export default function App() {
   const [extractRange, setExtractRange] = useState("12000");
   const [groqModel, setGroqModel] = useState("llama-3.3-70b-versatile");
   const [activeVideo, setActiveVideo] = useState(null); // { videoId, startSec, title }
+  const [editingInsight, setEditingInsight] = useState(null);
 
   const passRef = useRef();
 
@@ -1338,8 +1339,48 @@ export default function App() {
     }
   };
 
-  // eslint-disable-next-line no-unused-vars
-  const deleteInsight = (id) => { setInsights((prev) => prev.filter((i) => i.id !== id)); showToast("Removed"); };
+  const deleteInsight = async (id) => {
+    if (window.confirm("Are you sure you want to delete this insight?")) {
+      if (isFirebaseConfigured) {
+        try {
+          await deleteDoc(doc(db, "insights", id));
+          setInsights((prev) => prev.filter((i) => i.id !== id));
+          showToast("Insight deleted from cloud!");
+        } catch (err) {
+          console.error(err);
+          showToast("Error deleting insight");
+        }
+      } else {
+        setInsights((prev) => prev.filter((i) => i.id !== id));
+        showToast("Insight deleted locally!");
+      }
+    }
+  };
+
+  const saveEditedInsight = async (updatedInsight) => {
+    if (!updatedInsight.ep.trim() || !updatedInsight.speaker.trim() || !updatedInsight.quote.trim() || !updatedInsight.takeaway.trim()) {
+      showToast("All fields except Timestamp and Video URL are required.");
+      return;
+    }
+
+    if (isFirebaseConfigured) {
+      try {
+        const docRef = doc(db, "insights", updatedInsight.id);
+        const { id, ...dataToSave } = updatedInsight;
+        await updateDoc(docRef, dataToSave);
+        setInsights((prev) => prev.map((i) => i.id === updatedInsight.id ? updatedInsight : i));
+        showToast("Insight updated in cloud!");
+        setEditingInsight(null);
+      } catch (err) {
+        console.error(err);
+        showToast("Error updating insight");
+      }
+    } else {
+      setInsights((prev) => prev.map((i) => i.id === updatedInsight.id ? updatedInsight : i));
+      showToast("Insight updated locally!");
+      setEditingInsight(null);
+    }
+  };
 
   const shareInsight = (ins) => {
     const text = `"${ins.quote}"\n\n— from the "WTF is" Podcast by @nikhilkamathcio\n\nMore insights: wtfinsights.vercel.app`;
@@ -2155,33 +2196,148 @@ export default function App() {
                     <span className="badge-dot" />
                     {isFirebaseConfigured ? "Connected to Cloud Firestore" : "Local Storage Mode (Offline)"}
                   </div>
-                  
-                  <div className="backup-section">
-                    <h3>💾 Export Database</h3>
-                    <p>Download the complete list of insights currently saved as a backup `.json` file.</p>
-                    <button className="btn btn-solid" onClick={exportDatabase}>Export Insights (JSON)</button>
-                  </div>
 
-                  <div className="backup-section">
-                    <h3>📥 Import Database</h3>
-                    <p>Upload a previously exported `.json` file to restore or merge insights. This will sync automatically to Firestore if live.</p>
-                    <div style={{ position: "relative", display: "inline-block" }}>
-                      <input 
-                        type="file" 
-                        accept=".json" 
-                        onChange={importDatabase} 
-                        style={{ 
-                          position: "absolute", 
-                          inset: 0, 
-                          opacity: 0, 
-                          cursor: "pointer", 
-                          width: "100%", 
-                          height: "100%" 
-                        }} 
-                      />
-                      <button className="btn" style={{ pointerEvents: "none" }}>Select & Import File</button>
+                  {editingInsight ? (
+                    <div className="backup-section" style={{ marginTop: 16 }}>
+                      <h3>✏️ Edit Insight</h3>
+                      <div className="field" style={{ marginTop: 12 }}>
+                        <label>Episode title</label>
+                        <input 
+                          value={editingInsight.ep} 
+                          onChange={(e) => setEditingInsight({ ...editingInsight, ep: e.target.value })} 
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Speaker</label>
+                        <input 
+                          value={editingInsight.speaker} 
+                          onChange={(e) => setEditingInsight({ ...editingInsight, speaker: e.target.value })} 
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Quote</label>
+                        <textarea 
+                          value={editingInsight.quote} 
+                          onChange={(e) => setEditingInsight({ ...editingInsight, quote: e.target.value })} 
+                          style={{ minHeight: 80 }}
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Key takeaway</label>
+                        <textarea 
+                          value={editingInsight.takeaway} 
+                          onChange={(e) => setEditingInsight({ ...editingInsight, takeaway: e.target.value })} 
+                          style={{ minHeight: 80 }}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                        <div className="field">
+                          <label>Topic</label>
+                          <select 
+                            value={editingInsight.topic} 
+                            onChange={(e) => setEditingInsight({ ...editingInsight, topic: e.target.value })}
+                          >
+                            {TOPICS.map((t) => <option key={t}>{t}</option>)}
+                          </select>
+                        </div>
+                        <div className="field">
+                          <label>Timestamp</label>
+                          <input 
+                            placeholder="e.g. 1:12:34" 
+                            value={editingInsight.ts} 
+                            onChange={(e) => setEditingInsight({ ...editingInsight, ts: e.target.value })} 
+                          />
+                        </div>
+                      </div>
+                      <div className="field">
+                        <label>YouTube Video URL (optional)</label>
+                        <input 
+                          placeholder="e.g. https://youtu.be/..." 
+                          value={editingInsight.videoUrl || (editingInsight.videoId ? `https://youtu.be/${editingInsight.videoId}` : "")} 
+                          onChange={(e) => {
+                            const url = e.target.value;
+                            const videoId = parseYouTubeVideoId(url);
+                            setEditingInsight({ ...editingInsight, videoUrl: url, videoId: videoId });
+                          }} 
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+                        <button className="btn btn-solid" onClick={() => saveEditedInsight(editingInsight)}>Save Changes</button>
+                        <button className="btn" onClick={() => setEditingInsight(null)}>Cancel</button>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="backup-section">
+                        <h3>💾 Export Database</h3>
+                        <p>Download the complete list of insights currently saved as a backup `.json` file.</p>
+                        <button className="btn btn-solid" onClick={exportDatabase}>Export Insights (JSON)</button>
+                      </div>
+
+                      <div className="backup-section">
+                        <h3>📥 Import Database</h3>
+                        <p>Upload a previously exported `.json` file to restore or merge insights. This will sync automatically to Firestore if live.</p>
+                        <div style={{ position: "relative", display: "inline-block" }}>
+                          <input 
+                            type="file" 
+                            accept=".json" 
+                            onChange={importDatabase} 
+                            style={{ 
+                              position: "absolute", 
+                              inset: 0, 
+                              opacity: 0, 
+                              cursor: "pointer", 
+                              width: "100%", 
+                              height: "100%" 
+                            }} 
+                          />
+                          <button className="btn" style={{ pointerEvents: "none" }}>Select & Import File</button>
+                        </div>
+                      </div>
+
+                      <div className="backup-section" style={{ marginTop: 24 }}>
+                        <h3>✏️ Manage Insights ({insights.length})</h3>
+                        <p style={{ marginBottom: 12 }}>Edit spelling mistakes or delete outdated entries directly below.</p>
+                        <div style={{ maxHeight: 350, overflowY: 'auto', border: 'var(--border-thin)', borderRadius: 6, background: '#fff', padding: 8 }}>
+                          {insights.length === 0 ? (
+                            <div style={{ padding: 16, textAlign: 'center', color: '#999', fontSize: 13 }}>No insights in database.</div>
+                          ) : (
+                            insights.map((ins) => (
+                              <div key={ins.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 8px', borderBottom: '1px solid #eee', gap: 12 }}>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div style={{ fontWeight: 700, fontSize: 13, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', color: 'var(--ink)' }}>
+                                    {ins.ep} {ins.speaker && `· ${ins.speaker}`}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#666', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', fontStyle: 'italic', marginTop: 2 }}>
+                                    "{ins.quote}"
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                                  <button 
+                                    className="btn" 
+                                    style={{ padding: '4px 8px', fontSize: 11 }} 
+                                    onClick={() => setEditingInsight({
+                                      ...ins,
+                                      videoUrl: ins.videoId ? `https://youtu.be/${ins.videoId}` : ""
+                                    })}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button 
+                                    className="btn btn-accent" 
+                                    style={{ padding: '4px 8px', fontSize: 11, background: 'var(--accent-pink)', color: '#fff' }} 
+                                    onClick={() => deleteInsight(ins.id)}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
